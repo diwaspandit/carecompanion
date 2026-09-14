@@ -12,6 +12,7 @@ public enum SeniorTab: String, Codable, Sendable {
     case sos
     case medicines
     case visits
+    case messages
 }
 
 public enum FamilyTab: String, Codable, Sendable {

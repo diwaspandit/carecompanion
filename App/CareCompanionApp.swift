@@ -182,6 +182,8 @@ private struct SeniorHomeView: View {
             SeniorMedicinesScreen()
         } else if state.seniorTab == .visits {
             SeniorVisitsScreen()
+        } else if state.seniorTab == .messages {
+            SeniorMessagesScreen()
         } else {
         VStack(spacing: 0) {
             ScrollView {
@@ -261,7 +263,7 @@ private struct SeniorBottomBar: View {
             SeniorBarButton(title: "Home", icon: "house", active: state.seniorTab == .home) { state.seniorTab = .home }
             SeniorBarButton(title: "Medicines", icon: "capsule", active: state.seniorTab == .medicines) { state.seniorTab = .medicines }
             SeniorBarButton(title: "Visits", icon: "calendar", active: state.seniorTab == .visits) { state.seniorTab = .visits }
-            SeniorBarButton(title: "Messages", icon: "bubble.right", active: state.seniorTab == .mood) { state.seniorTab = .mood }
+            SeniorBarButton(title: "Messages", icon: "bubble.right", active: state.seniorTab == .messages) { state.seniorTab = .messages }
         }
         .padding(.top, 10)
         .padding(.horizontal, 8)
@@ -325,6 +327,34 @@ private struct SeniorVisitsScreen: View {
                         .padding(.top, 26)
                         .accessibilityIdentifier("senior.visits.title")
                     NextVisitCard()
+                }
+                .padding(.horizontal, 20)
+                .padding(.bottom, 110)
+            }
+            SeniorBottomBar()
+        }
+        .background(CareTheme.background)
+    }
+}
+
+private struct SeniorMessagesScreen: View {
+    var body: some View {
+        VStack(spacing: 0) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 24) {
+                    Text("Messages")
+                        .font(.system(size: 32, weight: .black, design: .rounded))
+                        .foregroundStyle(CareTheme.ink)
+                        .padding(.top, 26)
+                        .accessibilityIdentifier("senior.messages.title")
+                    LovableCard {
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("Maya and Diwas").font(.system(size: 19, weight: .black))
+                            Text("Messaging is intentionally light for the demo. The care story focuses on check-ins, alerts, and appointment prep.")
+                                .font(.system(size: 15))
+                                .foregroundStyle(CareTheme.secondaryText)
+                        }
+                    }
                 }
                 .padding(.horizontal, 20)
                 .padding(.bottom, 110)

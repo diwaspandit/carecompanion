@@ -21,6 +21,14 @@ Updated: 2026-09-14. Claude/Lovable reference UI plus functional demo click-thro
 - PASS: `swift test` — 19 XCTest cases, 0 failures (re-verified after the fix).
 - PASS: `xcodebuild ... build` for the iOS Simulator — BUILD SUCCEEDED (re-verified after the fix).
 
+## 2026-09-14 senior "Messages" tab bug fix (branch `phase-0-stabilize-demo`)
+
+- Bug: the senior bottom tab bar's "Messages" button (chat-bubble icon) silently opened the Mood recording screen instead of a messages screen — `active: state.seniorTab == .mood` / `{ state.seniorTab = .mood }`. Same root cause class as the Medicines/Visits bug: no real senior-scoped destination existed for it.
+- Fix: added a `.messages` `SeniorTab` case and a `SeniorMessagesScreen` that reuses the same "messaging is intentionally light for the demo" copy already used on the family side's `ChatsView` (AGENTS.md scopes out complex messaging). Rewired the "Messages" button to set `state.seniorTab = .messages`.
+- The check-in → mood-recording flow (`AppState.checkIn()` sets `seniorTab = .mood` directly) was not touched and still works — this only removed the mislabeled manual shortcut into it.
+- Verified live on the iPhone 17 simulator: "Messages" now shows its own screen, tab highlighted, no longer opens Mood.
+- PASS: `swift test` — 19 XCTest cases, 0 failures (re-verified). PASS: iOS Simulator build (re-verified).
+
 ## 2026-09-14 checkpoint
 
 - Implemented the Claude/Lovable-inspired SwiftUI demo: onboarding, senior home, mood recording, medications, SOS countdown, family dashboard, AI insight teaser/full state, appointment prep, paywall fallback and hidden demo menu.
