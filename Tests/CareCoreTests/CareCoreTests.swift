@@ -391,4 +391,106 @@ final class CareCoreTests: XCTestCase {
             XCTAssertFalse(repository.snapshot.appointments.contains { $0.id == "test-appt" })
         }
     }
+
+    // MARK: - Phase 4 Health Sync Tests
+
+    func testHealthSyncWithNoProvider() async {
+        let state = await MainActor.run {
+            AppState(repository: DemoCareRepository(), healthProvider: nil)
+        }
+
+        await state.syncHealthData()
+
+        await MainActor.run {
+            // Should not fail, just no-op
+            XCTAssertEqual(state.healthSyncStatus.healthData, .idle)
+        }
+    }
+
+    func testHealthSyncWithDemoProvider() async {
+        let state = await MainActor.run {
+            AppState(repository: DemoCareRepository(), healthProvider: DemoHealthDataProvider())
+        }
+
+        await state.syncHealthData()
+
+        await MainActor.run {
+            XCTAssertEqual(state.healthSyncStatus.healthData, .synced)
+            XCTAssertNotNil(state.healthSyncStatus.lastSyncDate)
+            // Should have health snapshots from demo provider
+            XCTAssertFalse(state.snapshot.health.isEmpty)
+        }
+    }
+
+    func testHealthPermissionStatusCheck() async {
+        let state = await MainActor.run {
+            AppState(repository: DemoCareRepository(), healthProvider: DemoHealthDataProvider())
+        }
+
+        let status = await state.checkHealthPermissionStatus()
+
+        XCTAssertEqual(status, .authorized)
+    }
+
+    func testHealthSyncUpdatesSnapshot() async {
+        let state = await MainActor.run {
+            AppState(repository: DemoCareRepository(), healthProvider: DemoHealthDataProvider())
+        }
+
+        await state.syncHealthData()
+
+        await MainActor.run {
+            // Should have health snapshots from sync
+            XCTAssertFalse(state.snapshot.health.isEmpty)
+            // All snapshots should be from demo provider
+            let demoSnapshots = state.snapshot.health.filter { $0.source == "Demo data" }
+            XCTAssertEqual(demoSnapshots.count, state.snapshot.health.count)
+            // Should have 7 days of data
+            XCTAssertEqual(state.snapshot.health.count, 7)
+        }
+    }
+
+    func testHealthSnapshotsHaveCorrectSource() async throws {
+        let provider = DemoHealthDataProvider()
+        let date = Date()
+        let snapshots = try await provider.snapshots(seniorID: "test-senior", endingAt: date)
+
+        XCTAssertTrue(snapshots.allSatisfy { $0.source == "Demo data" })
+    }
+
+    func testHealthSyncStatusTracking() async {
+        let state = await MainActor.run {
+            AppState(repository: DemoCareRepository(), healthProvider: DemoHealthDataProvider())
+        }
+
+        await MainActor.run {
+            XCTAssertEqual(state.healthSyncStatus.healthData, .idle)
+        }
+
+        await state.syncHealthData()
+
+        await MainActor.run {
+            XCTAssertEqual(state.healthSyncStatus.healthData, .synced)
+            XCTAssertNil(state.healthSyncStatus.lastError)
+        }
+    }
+
+    func testRequestHealthPermissionsWithNoProvider() async {
+        let state = await MainActor.run {
+            AppState(repository: DemoCareRepository(), healthProvider: nil)
+        }
+
+        do {
+            try await state.requestHealthPermissions()
+            XCTFail("Should have thrown error")
+        } catch let error as CareServiceError {
+            if case .vendorUnavailable = error {
+                // Expected
+            } else {
+                XCTFail("Wrong error type")
+            }
+        } catch {
+            XCTFail("Wrong error type")
+        }
+    }
 }

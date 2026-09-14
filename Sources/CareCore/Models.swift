@@ -58,6 +58,16 @@ public struct HealthSnapshot: Identifiable, Equatable, Codable, Sendable {
     public let sleepMinutes: Int
     public let restingHeartRate: Int
     public let source: String
+
+    public init(id: String, seniorID: String, date: Date, steps: Int, sleepMinutes: Int, restingHeartRate: Int, source: String) {
+        self.id = id
+        self.seniorID = seniorID
+        self.date = date
+        self.steps = steps
+        self.sleepMinutes = sleepMinutes
+        self.restingHeartRate = restingHeartRate
+        self.source = source
+    }
 }
 public struct Appointment: Identifiable, Equatable, Codable, Sendable {
     public let id: String

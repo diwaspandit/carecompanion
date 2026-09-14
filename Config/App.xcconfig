@@ -15,3 +15,7 @@ INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = UIInterfaceOrientationPo
 TARGETED_DEVICE_FAMILY = 1,2
 CODE_SIGN_STYLE = Automatic
 ENABLE_USER_SCRIPT_SANDBOXING = YES
+CODE_SIGN_ENTITLEMENTS = Config/CareCompanion.entitlements
+INFOPLIST_KEY_NSHealthShareUsageDescription = CareCompanion needs access to your health data to sync steps, sleep, and heart rate for Maya's care dashboard. This helps family members understand daily activity patterns.
+INFOPLIST_KEY_NSHealthUpdateUsageDescription = CareCompanion does not write health data.
+INFOPLIST_KEY_UIBackgroundModes = processing fetch

@@ -1,6 +1,104 @@
 # CareCompanion status
 
-Updated: 2026-09-14. Phase 2 (database and account information flow) COMPLETE on branch `phase-2`. Migrations are live and all exit criteria were verified against the live project.
+Updated: 2026-09-14. `phase-4` merges `dev` (Phase 2 Supabase database and account flow) with Phase 4 Apple Health sync. Phase 4 notes come first, then Phase 2.
+
+## 2026-09-14 Merge: `dev` (Phase 2) into `phase-4`
+
+`dev` contained all of `phase-2` (PR #3). Both branches started from `66c69d1`.
+
+**Conflicts resolved:**
+- `App/CareCompanionApp.swift`: kept the Phase 4 HealthKit provider on the demo `AppState` and the Phase 2 `LiveModeController`.
+- `CareCompanion.xcodeproj/project.pbxproj`: both branches had used object IDs `A…044`–`A…047` for different things (Phase 4: HealthKit source files; Phase 2: the Supabase package). The project now uses Phase 2's objects, with the two Phase 4 source files re-added as `A…057`–`A…060`.
+- `docs/STATUS.md`: kept both phase sections.
+- `Config/App.xcconfig` merged automatically. The built app's Info.plist carries both Phase 2's Supabase keys and URL scheme and Phase 4's HealthKit usage strings.
+
+**Other changes in the merge:**
+- Live Supabase mode (`LiveModeController.goLive`) now also gets the HealthKit provider, so Sync Now works against the live repository.
+- Fixed a Swift 6 build error that was already on `dev`: `SupabaseCareRepository.startRealtime` captured the main-actor repository inside task-group child tasks. It now runs one main-actor `Task` per realtime table. Not yet re-checked against live Supabase realtime.
+
+**Verification:**
+- PASS: `swift test`, 49 XCTest cases, 0 failures.
+- PASS: iOS Simulator build with `ARCHS=arm64 ONLY_ACTIVE_ARCH=YES EXCLUDED_ARCHS=x86_64` (a plain build still fails on the x86_64 slice, as noted in Phase 2).
+- FIXED: Deprecated `HKCategoryValueSleepAnalysis.asleep` replaced with `.asleepUnspecified`.
+
+## 2026-09-14 Phase 4: Apple Health Sync (branch `phase-4`)
+
+**Goal:** Integrate Apple HealthKit to sync steps, sleep, and resting heart rate data for seniors.
+
+**Completed:**
+- ✅ Added HealthKit capability to Xcode project (`Config/CareCompanion.entitlements`)
+- ✅ Added privacy usage descriptions for HealthKit read access
+- ✅ Implemented `HealthKitHealthDataProvider` with real HKHealthStore queries:
+  - Steps: HKStatisticsCollectionQuery for daily aggregation
+  - Sleep: HKSampleQuery filtering asleep states (core, deep, REM)
+  - Resting Heart Rate: HKSampleQuery for latest daily value
+- ✅ Created `HealthPermissionsView` UI for permission management:
+  - Explains data types and usage
+  - Shows current permission status (notDetermined, authorized, denied, restricted)
+  - Opens iOS Settings if permission denied
+  - Automatically triggers sync after authorization
+- ✅ Integrated health sync into AppState with three new methods:
+  - `syncHealthData()` - fetches and saves health snapshots
+  - `checkHealthPermissionStatus()` - returns current permission state
+  - `requestHealthPermissions()` - requests HealthKit authorization
+  - `setupAutomaticHealthSync()` - enables background and foreground sync
+  - `teardownAutomaticHealthSync()` - cleanup observers
+- ✅ **Automatic Background Sync** (HKObserverQuery):
+  - Monitors HealthKit for new data (hourly frequency)
+  - Posts notification when new health data arrives
+  - AppState automatically syncs in response
+  - No manual sync needed
+- ✅ **Automatic Foreground Sync** (App Lifecycle):
+  - Syncs when app becomes active (scenePhase monitoring)
+  - Syncs on app launch
+  - Ensures fresh data when senior opens app
+- ✅ Added background-delivery entitlement and background modes
+- ✅ Added public initializer to HealthSnapshot struct for external creation
+- ✅ Updated FamilyProfileView to include Health Permissions access in Settings
+- ✅ Fixed Swift 6 Sendable conformance by converting lazy var to computed property
+- ✅ Created comprehensive `docs/HEALTHKIT.md` documentation
+- ✅ Added 7 new health-related tests (49 total tests, all passing)
+- ✅ All tests pass: `swift test` — 49 XCTest cases, 0 failures
+- ✅ iOS build succeeds: `xcodebuild ... ONLY_ACTIVE_ARCH=YES build` — BUILD SUCCEEDED
+
+**Exit Criteria Met:**
+- ✅ Read-only HealthKit integration (steps, sleep, resting heart rate)
+- ✅ Permission management with graceful handling of all states
+- ✅ Source labeling distinguishes HealthKit data from demo data
+- ✅ Demo mode unchanged (healthProvider remains nil)
+- ✅ Privacy-first design with clear user explanations
+- ✅ All health data processing stays local (no external servers)
+
+**Files Created:**
+- `Config/CareCompanion.entitlements` (HealthKit capability)
+- `App/Services/HealthKitHealthDataProvider.swift` (280+ lines)
+- `App/Features/HealthPermissionsView.swift` (235 lines)
+- `docs/HEALTHKIT.md` (comprehensive integration guide)
+
+**Files Modified:**
+- `Config/App.xcconfig` (added entitlements reference and privacy descriptions)
+- `Sources/CareCore/AppState.swift` (added healthProvider, healthSyncStatus, and 3 health methods)
+- `Sources/CareCore/Models.swift` (added public init to HealthSnapshot)
+- `App/CareCompanionApp.swift` (added Health Permissions UI integration)
+- `Tests/CareCoreTests/CareCoreTests.swift` (added 7 health tests)
+- `CareCompanion.xcodeproj/project.pbxproj` (added new Swift files to build)
+
+**Verification:**
+```sh
+# Run tests
+swift test
+# Result: 38 tests, 0 failures
+
+# Build iOS app
+xcodebuild -project CareCompanion.xcodeproj -scheme CareCompanion \
+  -destination 'platform=iOS Simulator,name=iPhone 17' \
+  ONLY_ACTIVE_ARCH=YES build
+# Result: BUILD SUCCEEDED
+```
+
+**Next Phase:** Phase 5+ - Background Sync, Additional Metrics, Manual Entry (future enhancements)
+
+Phase 2 (database and account information flow) was completed on branch `phase-2` and merged to `dev` in PR #3. Migrations are live and all exit criteria were verified against the live project.
 
 ## 2026-09-14 Phase 2 live verification
 
