@@ -198,6 +198,8 @@ private struct SeniorHomeView: View {
             SeniorVisitsScreen()
         } else if state.seniorTab == .messages {
             SeniorMessagesScreen()
+        } else if state.seniorTab == .profile {
+            SeniorProfileScreen()
         } else {
         VStack(spacing: 0) {
             ScrollView {
@@ -278,6 +280,7 @@ private struct SeniorBottomBar: View {
             SeniorBarButton(title: "Medicines", icon: "capsule", active: state.seniorTab == .medicines) { state.seniorTab = .medicines }
             SeniorBarButton(title: "Visits", icon: "calendar", active: state.seniorTab == .visits) { state.seniorTab = .visits }
             SeniorBarButton(title: "Messages", icon: "bubble.right", active: state.seniorTab == .messages) { state.seniorTab = .messages }
+            SeniorBarButton(title: "Profile", icon: "person.crop.circle", active: state.seniorTab == .profile) { state.seniorTab = .profile }
         }
         .padding(.top, 10)
         .padding(.horizontal, 8)
@@ -376,6 +379,100 @@ private struct SeniorMessagesScreen: View {
             SeniorBottomBar()
         }
         .background(CareTheme.background)
+    }
+}
+
+private struct SeniorProfileScreen: View {
+    @Environment(AppState.self) private var state
+    @Environment(SubscriptionController.self) private var subscriptions
+    @State private var showPlans = false
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 24) {
+                    Text("Profile")
+                        .font(.system(size: 32, weight: .black, design: .rounded))
+                        .foregroundStyle(CareTheme.ink)
+                        .padding(.top, 26)
+                        .accessibilityIdentifier("senior.profile.title")
+
+                    LovableCard {
+                        HStack(spacing: 14) {
+                            AvatarCircle(text: "MS", color: CareTheme.gold, size: 56)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Maya Sharma").font(.system(size: 20, weight: .black))
+                                Text("74 years · Grandmother").font(.system(size: 14)).foregroundStyle(CareTheme.secondaryText)
+                                Text("Kathmandu, Nepal").font(.system(size: 14)).foregroundStyle(CareTheme.secondaryText)
+                            }
+                        }
+                    }
+
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Plan").font(.system(size: 17, weight: .black)).foregroundStyle(CareTheme.secondaryText)
+                        LovableCard {
+                            VStack(alignment: .leading, spacing: 14) {
+                                HStack {
+                                    PlainPill(
+                                        text: PlanCatalog.all.first { $0.tier == state.subscription.tier }?.title ?? "Free",
+                                        icon: "sparkles",
+                                        color: CareTheme.gold,
+                                        fill: CareTheme.goldPale
+                                    )
+                                    Spacer()
+                                }
+                                Button {
+                                    state.showPaywall(for: .careInsight)
+                                } label: {
+                                    Text(state.hasPremiumAccess ? "Manage plan" : "Upgrade to Plus")
+                                        .font(.system(size: 16, weight: .black))
+                                        .foregroundStyle(.white)
+                                        .frame(maxWidth: .infinity)
+                                        .padding(.vertical, 16)
+                                        .background(CareTheme.sage, in: Capsule())
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityIdentifier("senior.profile.plan")
+                                Button("Compare all plans") { showPlans = true }
+                                    .font(.system(size: 15, weight: .black))
+                                    .foregroundStyle(CareTheme.sageDark)
+                                    .frame(maxWidth: .infinity)
+                                    .accessibilityIdentifier("senior.profile.comparePlans")
+                                if subscriptions.isConfigured {
+                                    Button("Restore purchases") {
+                                        Task { await subscriptions.restore(applyingTo: state) }
+                                    }
+                                    .font(.system(size: 14, weight: .bold))
+                                    .foregroundStyle(CareTheme.secondaryText)
+                                    .frame(maxWidth: .infinity)
+                                    .accessibilityIdentifier("senior.profile.restorePurchases")
+                                }
+                            }
+                        }
+                    }
+
+                    Button {
+                        state.switchToFamily()
+                    } label: {
+                        HStack {
+                            Text("Switch role").font(.system(size: 16, weight: .black)).foregroundStyle(CareTheme.ink)
+                            Spacer()
+                            Image(systemName: "chevron.right").font(.system(size: 13, weight: .black)).foregroundStyle(CareTheme.secondaryText)
+                        }
+                        .padding(20)
+                        .background(.white, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).stroke(CareTheme.cardStroke))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("senior.profile.switchRole")
+                }
+                .padding(.horizontal, 20)
+                .padding(.bottom, 110)
+            }
+            SeniorBottomBar()
+        }
+        .background(CareTheme.background)
+        .sheet(isPresented: $showPlans) { PlansComparisonView() }
     }
 }
 
@@ -912,6 +1009,8 @@ private struct SmallMetric: View {
 
 private struct FamilyProfileView: View {
     @Environment(AppState.self) private var state
+    @Environment(SubscriptionController.self) private var subscriptions
+    @State private var showPlans = false
 
     private struct EmergencyContact: Identifiable {
         let id = UUID()
@@ -944,6 +1043,49 @@ private struct FamilyProfileView: View {
                         Text("Maya Sharma").font(.system(size: 20, weight: .black))
                         Text("74 years · Grandmother").font(.system(size: 14)).foregroundStyle(CareTheme.secondaryText)
                         Text("Kathmandu, Nepal").font(.system(size: 14)).foregroundStyle(CareTheme.secondaryText)
+                    }
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Plan").font(.system(size: 17, weight: .black)).foregroundStyle(CareTheme.secondaryText)
+                LovableCard {
+                    VStack(alignment: .leading, spacing: 14) {
+                        HStack {
+                            PlainPill(
+                                text: PlanCatalog.all.first { $0.tier == state.subscription.tier }?.title ?? "Free",
+                                icon: "sparkles",
+                                color: CareTheme.gold,
+                                fill: CareTheme.goldPale
+                            )
+                            Spacer()
+                        }
+                        Button {
+                            state.showPaywall(for: .careInsight)
+                        } label: {
+                            Text(state.hasPremiumAccess ? "Manage plan" : "Upgrade to Plus")
+                                .font(.system(size: 16, weight: .black))
+                                .foregroundStyle(.white)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 16)
+                                .background(CareTheme.sage, in: Capsule())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("profile.plan")
+                        Button("Compare all plans") { showPlans = true }
+                            .font(.system(size: 15, weight: .black))
+                            .foregroundStyle(CareTheme.sageDark)
+                            .frame(maxWidth: .infinity)
+                            .accessibilityIdentifier("profile.comparePlans")
+                        if subscriptions.isConfigured {
+                            Button("Restore purchases") {
+                                Task { await subscriptions.restore(applyingTo: state) }
+                            }
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundStyle(CareTheme.secondaryText)
+                            .frame(maxWidth: .infinity)
+                            .accessibilityIdentifier("profile.restorePurchases")
+                        }
                     }
                 }
             }
@@ -1018,6 +1160,7 @@ private struct FamilyProfileView: View {
             .buttonStyle(.plain)
             .accessibilityIdentifier("profile.switchRole")
         }
+        .sheet(isPresented: $showPlans) { PlansComparisonView() }
     }
 }
 
