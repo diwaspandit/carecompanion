@@ -1,0 +1,99 @@
+# CareCompanion status
+
+Updated: 2026-09-14. Claude/Lovable reference UI plus functional demo click-through implemented on branch Dwmi01; iOS build and simulator launch verified.
+
+## 2026-09-14 checkpoint
+
+- Implemented the Claude/Lovable-inspired SwiftUI demo: onboarding, senior home, mood recording, medications, SOS countdown, family dashboard, AI insight teaser/full state, appointment prep, paywall fallback and hidden demo menu.
+- Added navigation state for onboarding/senior/family flows plus deterministic demo scenario reset paths.
+- Added deterministic `MockAIService`, `CareInsight`, and `AppointmentPrep` with safety language that avoids diagnosis, treatment, emergency inference and disease-probability claims.
+- Added medication toggling and updated demo data to named medications, 3 of 4 taken, Maya/Diwas story values and cardiology follow-up.
+- RevenueCat entitlement seams are present through `SubscriptionAccess` and expected entitlement names (`plus_plan`, `pro_plan`, `premium_insights`). The running app currently uses a local Test Store fallback sheet because the RevenueCat SDK/package/API key are not configured in this repository yet.
+- Added `docs/FULL_DEVELOPMENT_PLAN.md` as the phased production roadmap covering demo stabilization, service boundaries, Supabase information flow, RevenueCat sponsor/premium integration, Apple Health sync, safe AI and launch QA.
+
+## 2026-09-14 verification
+
+- PASS: `swift test` — 16 XCTest cases, 0 failures.
+- PASS: `xcodebuild -project CareCompanion.xcodeproj -scheme CareCompanion -configuration Debug -destination "generic/platform=iOS Simulator" -derivedDataPath .build/DerivedData ONLY_ACTIVE_ARCH=YES build`.
+- PASS: Installed and launched `com.carecompanion.txst` on the booted iPhone 17 simulator.
+- PASS: Captured simulator screenshots for cold onboarding and family dashboard visual smoke checks.
+- PASS: Checked live reference site at https://elder-link-guardian.lovable.app/ using gstack browse at 390x844 and captured `/private/tmp/lovable-onboarding.png`, `/private/tmp/lovable-senior.png`, and `/private/tmp/lovable-family.png`.
+- PASS: Reworked SwiftUI to follow the Claude/Lovable mobile prototype more directly: onboarding role cards, senior home, medicines, next visit, mood picker, family dashboard, health timeline, alert center, appointments, bottom tab bars, and full-screen SOS states.
+- PASS: Captured final native onboarding screenshot at `/private/tmp/carecompanion-claude-final-onboarding.png`.
+- PASS: Functional demo wiring added: senior check-in advances to mood, mood hands off to family dashboard, alert badges are dynamic, alert actions call/message/dismiss, SOS hands off to family emergency, AI insight and appointment prep unlock through the paywall fallback, and buttons that were previously visual-only now show state changes or demo toasts.
+- PASS: `swift test` after functional wiring — 19 XCTest cases, 0 failures.
+- PASS: User verified the simulator demo flow works for demo on 2026-09-14.
+- NOT COMPLETE: Real RevenueCatUI paywall/Test Store purchase is not wired to the SDK yet.
+- NOT COMPLETE: Three consecutive fully manual 90-second demo runs have not been executed.
+
+---
+
+Historical baseline follows.
+
+## Baseline evidence
+
+- Read AGENTS.md and LOVABLE_REFERENCE.md completely.
+- Initial tree contained only AGENTS.md, .gitignore and two docs. No Xcode project, app sources, packages or tests existed.
+- Git root is the parent shipaton directory; initially no commits. Working branch: feat/carecompanion-foundation.
+- No Xcode found in /Applications or Spotlight. Active developer directory: /Library/Developer/CommandLineTools.
+- Swift compiler: Apple Swift 6.0.3. `xcrun simctl list devices available` fails because simctl is absent.
+- Untouched `xcodebuild -version` failed. Newly scaffolded app build also fails before compilation because Xcode is absent. No known-good xcodebuild command yet.
+- Prior “Last build: PASS” and “14/14 PASS” claims were unsupported and have been replaced with these observations.
+- Lovable access resolved on 2026-09-14 using the updated public share link. Inspected onboarding, senior home, mood, family dashboard, appointments, alerts, health timeline and SOS countdown/confirmation. Nine reference screenshots and native translation notes are in docs/reference/.
+
+## Implemented foundation
+
+- Checked-in native Xcode project, shared app scheme, iOS 17 configuration and local CareCore package dependency.
+- SwiftUI launch surface and warm design tokens, rounded card and large button components. This is a foundation screen, not completed onboarding.
+- Care account/member/senior models, check-ins, moods, medications, health snapshots, appointments and alerts.
+- CareRepository, deterministic DemoCareRepository and seven-day DemoHealthDataProvider.
+- Observable AppState with shared role state, selected senior, check-in, mood, SOS acknowledgement and reset.
+- DemoScenarioController for all six specified scenario markers; preview markers do not grant subscription access or generate actual AI preparation.
+- SubscriptionService boundary and AccessPolicy for 1/5/25 seniors and active premium entitlements. RevenueCat itself is NOT integrated yet.
+- Twelve XCTest cases written; execution blocked by missing XCTest in Command Line Tools.
+
+## Verification
+
+- PASS: portable CareCore `swift build` with writable /tmp caches.
+- PASS: dependency-free core smoke checks for seed data, check-in, mood, SOS, access, reset and all six repeatable scenarios.
+- PASS: project.pbxproj syntax (`plutil -lint`) and shared scheme XML parse.
+- BLOCKED: `swift test` compiles CareCore then fails with `no such module 'XCTest'`.
+- BLOCKED: iOS app build; Xcode and iOS SDK missing.
+- NOT RUN: simulator UI tests, offline end-to-end demo, visual QA, RevenueCat purchases.
+- Demo run: 0/3.
+
+Reproduce portable build in the current sandbox:
+
+```sh
+CLANG_MODULE_CACHE_PATH=/tmp/carecompanion-clang SWIFTPM_MODULECACHE_OVERRIDE=/tmp/carecompanion-modules swift build --disable-sandbox --cache-path /tmp/carecompanion-cache --scratch-path /tmp/carecompanion-build
+sh Scripts/check-core.sh
+```
+
+The smoke executable is supplemental evidence and does not replace XCTest or iOS tests. The current app scheme has no iOS test target; add the UI test target in Phase 2 once Xcode can validate it.
+
+## Phase gates
+
+1. P0 foundation: implemented in part; iOS compilation and XCTest gate pending.
+2. P0 senior/onboarding/SOS UI: pending Phase 1 build gate.
+3. P0 family dashboard: pending.
+4. P1 appointments and AI: pending.
+5. P1 RevenueCat: pending; real dashboard configuration and public Test Store SDK key will be required at integration time.
+6. P2 polish and three repeatable demos: pending.
+7. P3 Supabase: deferred.
+8. P3 live AI/charts: deferred.
+
+## Human dependencies
+
+NEED FROM HUMAN: Install Xcode at /Applications/Xcode.app, launch to complete setup, and install an iOS simulator runtime in Settings → Components.
+WHY: Required iOS compiler, SDK, simulator and XCTest tools are absent.
+WHERE IT GOES: /Applications/Xcode.app and Xcode Settings → Components.
+
+Lovable authentication dependency: resolved. Public preview verified through gstack browse. Xcode rechecked on 2026-09-14: still unavailable.
+
+## Next action
+
+Once Xcode is available, use DEVELOPER_DIR as documented in IMPLEMENTATION.md, establish the actual passing app build, execute XCTest and fix failures before advancing to Phase 2. This checkpoint is partial foundation progress, not a stable iOS phase completion.
+
+## Latest Lovable progress review
+
+2026-09-14: Updated preview onboarding loads, but both senior and family entry points show a page-load error. Family retry also fails; console reports `useDemo must be used inside DemoProvider`. See docs/reference/PROGRESS_REVIEW.md. New demo features remain unverified until this provider/context regression is fixed in Lovable.
