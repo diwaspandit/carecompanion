@@ -1,0 +1,18 @@
+.DS_Store
+
+# Xcode
+DerivedData/
+*.xcuserstate
+xcuserdata/
+
+# Secrets
+Secrets.xcconfig
+.env
+.env.*
+!.env.example
+
+# Supabase/API secrets
+Config/Secrets.xcconfig
+# Swift Package Manager
+.build/
+.swiftpm/
