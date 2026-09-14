@@ -183,6 +183,7 @@ private struct SeniorHomeView: View {
     @Environment(AppState.self) private var state
     @Binding var showDemoMenu: Bool
     @State private var showSOS = false
+    @State private var showHealthPermissions = false
 
     var body: some View {
         if state.seniorTab == .mood {
@@ -204,6 +205,14 @@ private struct SeniorHomeView: View {
                             .onLongPressGesture { showDemoMenu = true }
                             .accessibilityIdentifier("app.logo")
                         Spacer()
+                        Button {
+                            showHealthPermissions = true
+                        } label: {
+                            Image(systemName: "heart.text.square.fill")
+                                .font(.system(size: 24))
+                                .foregroundStyle(CareTheme.sage)
+                        }
+                        .accessibilityIdentifier("senior.healthSettings")
                         Button {
                             showSOS = true
                         } label: {
@@ -259,6 +268,9 @@ private struct SeniorHomeView: View {
         .background(CareTheme.background)
         .fullScreenCover(isPresented: $showSOS) {
             SOSFlowView(isPresented: $showSOS)
+        }
+        .sheet(isPresented: $showHealthPermissions) {
+            HealthPermissionsView()
         }
         }
     }
