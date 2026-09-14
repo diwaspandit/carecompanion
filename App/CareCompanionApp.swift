@@ -178,6 +178,12 @@ private struct SeniorHomeView: View {
     var body: some View {
         if state.seniorTab == .mood {
             MoodScreen()
+        } else if state.seniorTab == .medicines {
+            SeniorMedicinesScreen()
+        } else if state.seniorTab == .visits {
+            SeniorVisitsScreen()
+        } else if state.seniorTab == .messages {
+            SeniorMessagesScreen()
         } else {
         VStack(spacing: 0) {
             ScrollView {
@@ -255,9 +261,9 @@ private struct SeniorBottomBar: View {
     var body: some View {
         HStack {
             SeniorBarButton(title: "Home", icon: "house", active: state.seniorTab == .home) { state.seniorTab = .home }
-            SeniorBarButton(title: "Medicines", icon: "capsule", active: false) { state.seniorTab = .home }
-            SeniorBarButton(title: "Visits", icon: "calendar", active: false) { state.switchToFamily(tab: .appointments) }
-            SeniorBarButton(title: "Messages", icon: "bubble.right", active: state.seniorTab == .mood) { state.seniorTab = .mood }
+            SeniorBarButton(title: "Medicines", icon: "capsule", active: state.seniorTab == .medicines) { state.seniorTab = .medicines }
+            SeniorBarButton(title: "Visits", icon: "calendar", active: state.seniorTab == .visits) { state.seniorTab = .visits }
+            SeniorBarButton(title: "Messages", icon: "bubble.right", active: state.seniorTab == .messages) { state.seniorTab = .messages }
         }
         .padding(.top, 10)
         .padding(.horizontal, 8)
@@ -286,6 +292,76 @@ private struct SeniorBarButton: View {
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("senior.tab.\(title.replacingOccurrences(of: " ", with: "").lowercased())")
+    }
+}
+
+private struct SeniorMedicinesScreen: View {
+    var body: some View {
+        VStack(spacing: 0) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 24) {
+                    Text("Medicines")
+                        .font(.system(size: 32, weight: .black, design: .rounded))
+                        .foregroundStyle(CareTheme.ink)
+                        .padding(.top, 26)
+                        .accessibilityIdentifier("senior.medicines.title")
+                    MedicineListView()
+                }
+                .padding(.horizontal, 20)
+                .padding(.bottom, 110)
+            }
+            SeniorBottomBar()
+        }
+        .background(CareTheme.background)
+    }
+}
+
+private struct SeniorVisitsScreen: View {
+    var body: some View {
+        VStack(spacing: 0) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 24) {
+                    Text("Visits")
+                        .font(.system(size: 32, weight: .black, design: .rounded))
+                        .foregroundStyle(CareTheme.ink)
+                        .padding(.top, 26)
+                        .accessibilityIdentifier("senior.visits.title")
+                    NextVisitCard()
+                }
+                .padding(.horizontal, 20)
+                .padding(.bottom, 110)
+            }
+            SeniorBottomBar()
+        }
+        .background(CareTheme.background)
+    }
+}
+
+private struct SeniorMessagesScreen: View {
+    var body: some View {
+        VStack(spacing: 0) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 24) {
+                    Text("Messages")
+                        .font(.system(size: 32, weight: .black, design: .rounded))
+                        .foregroundStyle(CareTheme.ink)
+                        .padding(.top, 26)
+                        .accessibilityIdentifier("senior.messages.title")
+                    LovableCard {
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("Maya and Diwas").font(.system(size: 19, weight: .black))
+                            Text("Messaging is intentionally light for the demo. The care story focuses on check-ins, alerts, and appointment prep.")
+                                .font(.system(size: 15))
+                                .foregroundStyle(CareTheme.secondaryText)
+                        }
+                    }
+                }
+                .padding(.horizontal, 20)
+                .padding(.bottom, 110)
+            }
+            SeniorBottomBar()
+        }
+        .background(CareTheme.background)
     }
 }
 
@@ -371,7 +447,7 @@ private struct NextVisitCard: View {
                 .font(.system(size: 25, weight: .black))
                 .foregroundStyle(CareTheme.ink)
             Button {
-                state.switchToFamily(tab: .appointments)
+                state.seniorTab = .visits
             } label: {
                 LovableCard {
                 HStack(alignment: .top, spacing: 18) {
@@ -578,6 +654,8 @@ private struct FamilyDashboardView: View {
                         AlertsView(showDemoMenu: $showDemoMenu)
                     case .chats:
                         ChatsView()
+                    case .profile:
+                        FamilyProfileView()
                     }
                 }
                 .padding(.horizontal, 20)
@@ -590,7 +668,7 @@ private struct FamilyDashboardView: View {
                     (.health, "Health", "waveform.path.ecg", nil),
                     (.emergency, "Alerts", "bell", state.activeDemoAlertCount),
                     (.appointments, "Visits", "calendar", nil),
-                    (.chats, "Chats", "bubble.right", 1)
+                    (.profile, "Profile", "person.crop.circle", nil)
                 ],
                 selection: $state.familyTab
             )
@@ -781,6 +859,10 @@ private struct SeniorReferenceCard: View {
                     SmallMetric(title: "Steps", value: "2,840", icon: "shoeprints.fill", color: CareTheme.blue, identifier: "family.steps")
                     SmallMetric(title: "Sleep", value: "6h 20min", icon: "moon", color: CareTheme.blue, identifier: "family.sleep")
                 }
+                Text("Steps and sleep are demo data for this preview, not synced from HealthKit.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(CareTheme.mutedText)
+                    .accessibilityIdentifier("family.demoDataNotice")
             }
         }
     }
@@ -807,6 +889,117 @@ private struct SmallMetric: View {
         .frame(maxWidth: .infinity, minHeight: 78, alignment: .leading)
         .background(CareTheme.grayPill, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
         .tint(color)
+    }
+}
+
+private struct FamilyProfileView: View {
+    @Environment(AppState.self) private var state
+
+    private struct EmergencyContact: Identifiable {
+        let id = UUID()
+        let name: String
+        let relation: String
+        let phone: String
+    }
+
+    private let contacts: [EmergencyContact] = [
+        EmergencyContact(name: "Diwas Sharma", relation: "Son — Austin, Texas", phone: "+1 512 555 0142"),
+        EmergencyContact(name: "Sunita Sharma", relation: "Daughter — Pokhara", phone: "+977 98 4100 2233"),
+        EmergencyContact(name: "Dr. Anil Rana", relation: "Cardiologist — Norvic Hospital", phone: "+977 1 4258 554")
+    ]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Senior Profile")
+                    .font(.system(size: 28, weight: .black))
+                    .accessibilityIdentifier("profile.title")
+                Text("Settings & care plan")
+                    .font(.system(size: 15))
+                    .foregroundStyle(CareTheme.secondaryText)
+            }
+
+            LovableCard {
+                HStack(spacing: 14) {
+                    AvatarCircle(text: "MS", color: CareTheme.gold, size: 56)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Maya Sharma").font(.system(size: 20, weight: .black))
+                        Text("74 years · Grandmother").font(.system(size: 14)).foregroundStyle(CareTheme.secondaryText)
+                        Text("Kathmandu, Nepal").font(.system(size: 14)).foregroundStyle(CareTheme.secondaryText)
+                    }
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Emergency contacts").font(.system(size: 17, weight: .black)).foregroundStyle(CareTheme.secondaryText)
+                LovableCard {
+                    VStack(alignment: .leading, spacing: 0) {
+                        ForEach(Array(contacts.enumerated()), id: \.element.id) { index, contact in
+                            HStack(spacing: 14) {
+                                CircleIcon(systemName: "phone.fill", color: CareTheme.coral, size: 40, iconSize: 16, fillOpacity: 0.16)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(contact.name).font(.system(size: 16, weight: .black))
+                                    Text(contact.relation).font(.system(size: 13)).foregroundStyle(CareTheme.secondaryText)
+                                }
+                                Spacer()
+                                Text(contact.phone).font(.system(size: 13)).foregroundStyle(CareTheme.secondaryText)
+                            }
+                            .padding(.vertical, 10)
+                            if index < contacts.count - 1 {
+                                Divider()
+                            }
+                        }
+                        Button {
+                            state.showDemoToast("Adding a contact will open a form in a future build.")
+                        } label: {
+                            Label("Add contact", systemImage: "plus")
+                                .font(.system(size: 15, weight: .black))
+                                .foregroundStyle(CareTheme.sageDark)
+                                .frame(maxWidth: .infinity)
+                                .padding(.top, 14)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("profile.addContact")
+                    }
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Medications").font(.system(size: 17, weight: .black)).foregroundStyle(CareTheme.secondaryText)
+                LovableCard {
+                    MedicineListView()
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Baseline health stats").font(.system(size: 17, weight: .black)).foregroundStyle(CareTheme.secondaryText)
+                Text("Demo data for this preview, not synced from HealthKit.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(CareTheme.mutedText)
+                    .accessibilityIdentifier("profile.demoDataNotice")
+                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
+                    SmallMetric(title: "Resting heart rate", value: "69 bpm", icon: "heart", color: CareTheme.coral)
+                    SmallMetric(title: "Average sleep", value: "7h 15min", icon: "moon", color: CareTheme.blue)
+                    SmallMetric(title: "Daily steps", value: "4,100", icon: "shoeprints.fill", color: CareTheme.blue)
+                    SmallMetric(title: "Check-in time", value: "around 8:00 AM", icon: "clock", color: CareTheme.gold)
+                }
+            }
+
+            Button {
+                state.switchToSenior()
+            } label: {
+                HStack {
+                    Text("Switch role").font(.system(size: 16, weight: .black)).foregroundStyle(CareTheme.ink)
+                    Spacer()
+                    Image(systemName: "chevron.right").font(.system(size: 13, weight: .black)).foregroundStyle(CareTheme.secondaryText)
+                }
+                .padding(20)
+                .background(.white, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).stroke(CareTheme.cardStroke))
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("profile.switchRole")
+        }
     }
 }
 
@@ -1078,6 +1271,10 @@ private struct HealthTimelineView: View {
         VStack(alignment: .leading, spacing: 18) {
             Text("Health Timeline").font(.system(size: 28, weight: .black))
             Text("Maya Sharma · last 7 days").font(.system(size: 15)).foregroundStyle(CareTheme.secondaryText)
+            Text("Demo data for this preview, not synced from HealthKit.")
+                .font(.system(size: 12))
+                .foregroundStyle(CareTheme.mutedText)
+                .accessibilityIdentifier("timeline.demoDataNotice")
             AIInsightReferenceCard()
             SleepChartCard()
             StepsChartCard()

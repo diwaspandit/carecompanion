@@ -2,6 +2,42 @@
 
 Updated: 2026-09-14. Claude/Lovable reference UI plus functional demo click-through implemented on branch Dwmi01; iOS build and simulator launch verified.
 
+## 2026-09-14 Phase 0 stabilization checkpoint (branch `phase-0-stabilize-demo`)
+
+- Added a visible "demo data, not synced from HealthKit" notice on the family dashboard steps/sleep metrics and on the Health Timeline screen, per AGENTS.md's requirement that seeded data never be presented as HealthKit data.
+- Attempted a full `xcodebuild test` run (unit tests + `CareCompanionDemoUITests`, which already covers the core demo path three times plus an SOS/reset path) on a booted iPhone 17 Pro simulator.
+  - PASS: the app and test targets build cleanly.
+  - BLOCKED (environment, not code): the UI test runner failed to initialize with `XCTDaemonErrorDomain Code=18 "Timed out waiting for AX loaded notification"` — the simulator's accessibility daemon did not come up in this sandboxed session. This is an environment limitation of the sandbox, not a defect in the app or the tests; it needs to be run outside this sandbox (a normal Xcode/Terminal session) to get a real pass/fail signal.
+- PASS: `swift test` — 19 XCTest cases, 0 failures (re-verified after the copy change).
+- PASS: `xcodebuild ... build` for the iOS Simulator — BUILD SUCCEEDED (re-verified after the copy change).
+- STILL NOT COMPLETE: three consecutive 90-second demo runs, manual or via `CareCompanionDemoUITests`, have not been observed to pass — blocked on the sandbox's AX daemon issue above for the automated path; manual runs need a human or a non-sandboxed session.
+
+## 2026-09-14 senior tab bar bug fix (branch `phase-0-stabilize-demo`)
+
+- Bug: tapping "Medicines" or "Visits" in the senior's bottom tab bar (and the "Next Visit" card on Senior Home) switched the app's role to family and jumped to Diwas's Family Dashboard, instead of staying on Maya's own screen.
+- Root cause: `SeniorTab` (`Sources/CareCore/AppNavigation.swift`) only defined `.home`, `.mood` and `.sos`. There was no senior-scoped destination for Medicines or Visits, so those buttons fell back to either `.home` (Medicines, silently a no-op) or `state.switchToFamily(tab: .appointments)` (Visits, an outright role switch) — never a bug in the family screens themselves.
+- Fix: added `.medicines` and `.visits` cases to `SeniorTab`; added two new senior-scoped screens (`SeniorMedicinesScreen`, `SeniorVisitsScreen`) that reuse the existing `MedicineListView`/`NextVisitCard` content under the senior's own header and bottom bar; rewired the "Medicines" and "Visits" tab buttons and the "Next Visit" card to set `state.seniorTab` instead of switching role.
+- Verified live on the iPhone 17 simulator: from Senior Home, tapping "Medicines" now shows Maya's own medicine list (tab highlighted, still on Maya's UI); tapping "Visits" now shows Maya's own next-visit card. Neither leaves the senior role.
+- PASS: `swift test` — 19 XCTest cases, 0 failures (re-verified after the fix).
+- PASS: `xcodebuild ... build` for the iOS Simulator — BUILD SUCCEEDED (re-verified after the fix).
+
+## 2026-09-14 senior "Messages" tab bug fix (branch `phase-0-stabilize-demo`)
+
+- Bug: the senior bottom tab bar's "Messages" button (chat-bubble icon) silently opened the Mood recording screen instead of a messages screen — `active: state.seniorTab == .mood` / `{ state.seniorTab = .mood }`. Same root cause class as the Medicines/Visits bug: no real senior-scoped destination existed for it.
+- Fix: added a `.messages` `SeniorTab` case and a `SeniorMessagesScreen` that reuses the same "messaging is intentionally light for the demo" copy already used on the family side's `ChatsView` (AGENTS.md scopes out complex messaging). Rewired the "Messages" button to set `state.seniorTab = .messages`.
+- The check-in → mood-recording flow (`AppState.checkIn()` sets `seniorTab = .mood` directly) was not touched and still works — this only removed the mislabeled manual shortcut into it.
+- Verified live on the iPhone 17 simulator: "Messages" now shows its own screen, tab highlighted, no longer opens Mood.
+- PASS: `swift test` — 19 XCTest cases, 0 failures (re-verified). PASS: iOS Simulator build (re-verified).
+
+## 2026-09-14 family Profile screen (branch `phase-0-stabilize-demo`)
+
+- New feature, not a bug fix: added a "Profile" tab (`person.crop.circle`) to the family bottom bar, replacing the standalone "Chats" tab button — matching `docs/LOVABLE_REFERENCE.md`'s live site, which has a Profile tab on the family side only (senior side has no Profile in the reference either; Home/Medicines/Visits only).
+- Adapted rather than ported 1:1: the reference's Profile screen includes "Linked devices" (Apple Watch/iPhone battery + sync status) and stats captioned "Auto-calibrated from Apple Health" — both directly conflict with AGENTS.md's explicit exclusion of HealthKit/Apple Watch and its rule that seeded data must never claim HealthKit provenance. Kept the senior header, emergency contacts (with Add), medications (reusing `MedicineListView`), and a health-stats card, but relabeled the stats "Demo data for this preview, not synced from HealthKit." (same pattern as the Health Timeline/family dashboard notices) and dropped the Linked Devices section.
+- "Switch role" is wired to `AppState.switchToSenior()` (already existed, unused until now) — this is the first thing in the app that fulfills onboarding's existing copy, "You can switch roles later in Settings."
+- `ChatsView` itself is untouched and still reachable from Alert row "Message" actions (`state.familyTab = .chats`); only its persistent tab bar button was removed, matching the reference.
+- Verified live on the iPhone 17 simulator: Home → family → Profile shows the full adapted layout; Switch role genuinely returns to Maya's Senior Home.
+- PASS: `swift test` — 19 XCTest cases, 0 failures. PASS: iOS Simulator build — BUILD SUCCEEDED.
+
 ## 2026-09-14 checkpoint
 
 - Implemented the Claude/Lovable-inspired SwiftUI demo: onboarding, senior home, mood recording, medications, SOS countdown, family dashboard, AI insight teaser/full state, appointment prep, paywall fallback and hidden demo menu.
