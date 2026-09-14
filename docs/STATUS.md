@@ -12,6 +12,15 @@ Updated: 2026-09-14. Claude/Lovable reference UI plus functional demo click-thro
 - PASS: `xcodebuild ... build` for the iOS Simulator — BUILD SUCCEEDED (re-verified after the copy change).
 - STILL NOT COMPLETE: three consecutive 90-second demo runs, manual or via `CareCompanionDemoUITests`, have not been observed to pass — blocked on the sandbox's AX daemon issue above for the automated path; manual runs need a human or a non-sandboxed session.
 
+## 2026-09-14 senior tab bar bug fix (branch `phase-0-stabilize-demo`)
+
+- Bug: tapping "Medicines" or "Visits" in the senior's bottom tab bar (and the "Next Visit" card on Senior Home) switched the app's role to family and jumped to Diwas's Family Dashboard, instead of staying on Maya's own screen.
+- Root cause: `SeniorTab` (`Sources/CareCore/AppNavigation.swift`) only defined `.home`, `.mood` and `.sos`. There was no senior-scoped destination for Medicines or Visits, so those buttons fell back to either `.home` (Medicines, silently a no-op) or `state.switchToFamily(tab: .appointments)` (Visits, an outright role switch) — never a bug in the family screens themselves.
+- Fix: added `.medicines` and `.visits` cases to `SeniorTab`; added two new senior-scoped screens (`SeniorMedicinesScreen`, `SeniorVisitsScreen`) that reuse the existing `MedicineListView`/`NextVisitCard` content under the senior's own header and bottom bar; rewired the "Medicines" and "Visits" tab buttons and the "Next Visit" card to set `state.seniorTab` instead of switching role.
+- Verified live on the iPhone 17 simulator: from Senior Home, tapping "Medicines" now shows Maya's own medicine list (tab highlighted, still on Maya's UI); tapping "Visits" now shows Maya's own next-visit card. Neither leaves the senior role.
+- PASS: `swift test` — 19 XCTest cases, 0 failures (re-verified after the fix).
+- PASS: `xcodebuild ... build` for the iOS Simulator — BUILD SUCCEEDED (re-verified after the fix).
+
 ## 2026-09-14 checkpoint
 
 - Implemented the Claude/Lovable-inspired SwiftUI demo: onboarding, senior home, mood recording, medications, SOS countdown, family dashboard, AI insight teaser/full state, appointment prep, paywall fallback and hidden demo menu.

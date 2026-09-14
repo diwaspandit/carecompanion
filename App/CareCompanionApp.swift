@@ -178,6 +178,10 @@ private struct SeniorHomeView: View {
     var body: some View {
         if state.seniorTab == .mood {
             MoodScreen()
+        } else if state.seniorTab == .medicines {
+            SeniorMedicinesScreen()
+        } else if state.seniorTab == .visits {
+            SeniorVisitsScreen()
         } else {
         VStack(spacing: 0) {
             ScrollView {
@@ -255,8 +259,8 @@ private struct SeniorBottomBar: View {
     var body: some View {
         HStack {
             SeniorBarButton(title: "Home", icon: "house", active: state.seniorTab == .home) { state.seniorTab = .home }
-            SeniorBarButton(title: "Medicines", icon: "capsule", active: false) { state.seniorTab = .home }
-            SeniorBarButton(title: "Visits", icon: "calendar", active: false) { state.switchToFamily(tab: .appointments) }
+            SeniorBarButton(title: "Medicines", icon: "capsule", active: state.seniorTab == .medicines) { state.seniorTab = .medicines }
+            SeniorBarButton(title: "Visits", icon: "calendar", active: state.seniorTab == .visits) { state.seniorTab = .visits }
             SeniorBarButton(title: "Messages", icon: "bubble.right", active: state.seniorTab == .mood) { state.seniorTab = .mood }
         }
         .padding(.top, 10)
@@ -286,6 +290,48 @@ private struct SeniorBarButton: View {
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("senior.tab.\(title.replacingOccurrences(of: " ", with: "").lowercased())")
+    }
+}
+
+private struct SeniorMedicinesScreen: View {
+    var body: some View {
+        VStack(spacing: 0) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 24) {
+                    Text("Medicines")
+                        .font(.system(size: 32, weight: .black, design: .rounded))
+                        .foregroundStyle(CareTheme.ink)
+                        .padding(.top, 26)
+                        .accessibilityIdentifier("senior.medicines.title")
+                    MedicineListView()
+                }
+                .padding(.horizontal, 20)
+                .padding(.bottom, 110)
+            }
+            SeniorBottomBar()
+        }
+        .background(CareTheme.background)
+    }
+}
+
+private struct SeniorVisitsScreen: View {
+    var body: some View {
+        VStack(spacing: 0) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 24) {
+                    Text("Visits")
+                        .font(.system(size: 32, weight: .black, design: .rounded))
+                        .foregroundStyle(CareTheme.ink)
+                        .padding(.top, 26)
+                        .accessibilityIdentifier("senior.visits.title")
+                    NextVisitCard()
+                }
+                .padding(.horizontal, 20)
+                .padding(.bottom, 110)
+            }
+            SeniorBottomBar()
+        }
+        .background(CareTheme.background)
     }
 }
 
@@ -371,7 +417,7 @@ private struct NextVisitCard: View {
                 .font(.system(size: 25, weight: .black))
                 .foregroundStyle(CareTheme.ink)
             Button {
-                state.switchToFamily(tab: .appointments)
+                state.seniorTab = .visits
             } label: {
                 LovableCard {
                 HStack(alignment: .top, spacing: 18) {
