@@ -1,6 +1,19 @@
 # CareCompanion status
 
-Updated: 2026-09-14. Phase 2 (database and account information flow) code complete on branch `phase-2`; live-project migration pending credentials.
+Updated: 2026-09-14. Phase 2 (database and account information flow) COMPLETE on branch `phase-2`. Migrations are live and all exit criteria were verified against the live project.
+
+## 2026-09-14 Phase 2 live verification
+
+- PASS: both migrations applied via the Supabase SQL Editor. All 15 tables exist, and the publishable key alone gets `42501` on every table and on `create_care_account`.
+- PASS: `Supabase/tests/live_smoke.sh` against project `ncqzcdaudhfwvzkosldj`, using three auto-confirmed test users (`diwas.test@`, `maya.test@`, `outsider.test@carecompanion.dev`). Diwas created an account and added Maya as senior; Maya joined by invite code and checked in; Diwas sees the check-in. The outsider reads 0 rows, their write is rejected with `42501`, and anon reads nothing.
+- PASS: realtime end-to-end in the iPhone 17 simulator. Diwas signed in on the hidden Developer → Live Supabase screen, added starter medications, switched to live data and opened the family dashboard ("0 of 4 taken"). Maya then recorded a `medication_events` row through the REST API, and the dashboard changed to "1 of 4 taken" with no interaction or restart.
+- Noted for Phase 5: several family dashboard strings are still hard-coded demo copy (the "Ramesh" avatar, "Checked in 2 hours ago", the AI insight teaser, "Grandmother"). In live mode they don't reflect database data; medication counts, mood and check-in state do.
+
+**Exit criteria (all met):**
+- ✅ Maya and Diwas can share one account in production mode.
+- ✅ Cross-account reads are denied by RLS (local contract test + live smoke test).
+- ✅ Realtime updates refresh the family dashboard without restarting the app.
+- ✅ Demo mode still runs when Supabase is unreachable. It remains the default launch path, and the developer screen is `#if DEBUG` only.
 
 ## 2026-09-14 Phase 2: Database And Account Information Flow (branch `phase-2`)
 
@@ -29,7 +42,7 @@ Updated: 2026-09-14. Phase 2 (database and account information flow) code comple
 
 **Build note:** a plain simulator build also tries x86_64, and the CareCore link fails for that slice. Use the arm64-only flags above on Apple Silicon.
 
-**Next action:** apply migrations to the live project, add the redirect URL in the Supabase dashboard, then continue with Phase 3 (RevenueCat).
+**Next action:** Phase 3 (RevenueCat), per the plan's implementation order.
 
 ---
 

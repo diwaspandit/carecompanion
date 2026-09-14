@@ -110,8 +110,23 @@ Realtime-published tables: `check_ins`, `mood_entries`, `medications`, `medicati
 3. Dashboard → Authentication → Providers → Email: keep enabled (magic link).
 4. Copy `Config/Secrets.xcconfig.example` to `Config/Secrets.xcconfig` with the project host and publishable key. Never put the `service_role` key in the app.
 
+## Verifying the live project
+
+```sh
+SUPABASE_HOST=<ref>.supabase.co SUPABASE_ANON_KEY=<publishable key> \
+DIWAS_EMAIL=... MAYA_EMAIL=... OUTSIDER_EMAIL=... TEST_PASSWORD=... \
+Supabase/tests/live_smoke.sh
+```
+
+The script needs three auto-confirmed email/password test users (Authentication → Users → Add user). Each run creates a new "Smoke Sharma <timestamp>" account.
+
+To check realtime by hand in a Debug build:
+1. Long-press the logo to open the demo menu, then Developer → Live Supabase.
+2. Sign in as the family test user, add starter medications, tap "Use live data in the app" and choose "I am a family member".
+3. Write as the senior user (e.g. a `medication_events` row). The dashboard's medication count updates without interaction.
+
 ## Not in this phase
 
-- No UI switches the app into production mode yet. The app still boots `DemoCareRepository`. Sign-in, account creation and invite screens belong to Phase 5.
+- Production mode is reachable only through the Debug-only developer screen. The app still boots `DemoCareRepository`. User-facing sign-in, account creation and invite screens belong to Phase 5.
 - `subscription_statuses` is written by a RevenueCat webhook in Phase 3.
 - Live AI writes to `care_insights` / `appointment_ai_preps` arrive in Phase 6.
