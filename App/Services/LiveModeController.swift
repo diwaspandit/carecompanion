@@ -90,7 +90,7 @@ import Supabase
 
     func goLive() async {
         guard let repository, hasSenior else { return }
-        let state = AppState(repository: repository, now: Date.init)
+        let state = AppState(repository: repository, healthProvider: HealthKitHealthDataProvider(), now: Date.init)
         liveState = state
         do {
             try await repository.startRealtime { [weak state] in

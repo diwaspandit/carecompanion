@@ -12,7 +12,7 @@ import Supabase
     private let client: SupabaseClient
     private let now: () -> Date
     private var channel: RealtimeChannelV2?
-    private var realtimeTask: Task<Void, Never>?
+    private var realtimeTasks: [Task<Void, Never>] = []
 
     private static let realtimeTables = [
         "check_ins", "mood_entries", "medications", "medication_events",
@@ -130,16 +130,15 @@ import Supabase
             channel.postgresChange(AnyAction.self, schema: "public", table: $0, filter: .eq("account_id", value: accountID))
         }
         self.channel = channel
-        realtimeTask = Task { [weak self] in
-            await withTaskGroup(of: Void.self) { group in
-                for stream in streams {
-                    group.addTask {
-                        for await _ in stream {
-                            await self?.handleRealtimeChange(onChange: onChange)
-                        }
-                    }
+        // One listener per table. Tasks created here inherit the repository's main-actor isolation,
+        // so capturing `self` isn't a cross-isolation send (Swift 6 rejects the task-group version).
+        // Awaiting each stream suspends, so the main thread isn't blocked.
+        for stream in streams {
+            realtimeTasks.append(Task { [weak self] in
+                for await _ in stream {
+                    await self?.handleRealtimeChange(onChange: onChange)
                 }
-            }
+            })
         }
         do {
             try await channel.subscribeWithError()
@@ -150,8 +149,8 @@ import Supabase
     }
 
     func stopRealtime() async {
-        realtimeTask?.cancel()
-        realtimeTask = nil
+        realtimeTasks.forEach { $0.cancel() }
+        realtimeTasks = []
         if let channel {
             await client.removeChannel(channel)
         }

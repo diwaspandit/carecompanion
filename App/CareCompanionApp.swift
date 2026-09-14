@@ -8,7 +8,16 @@ private enum CareRuntime {
 
 @main
 struct CareCompanionApp: App {
-    @State private var state = AppState(repository: DemoCareRepository())
+    @State private var state: AppState = {
+        let repository = DemoCareRepository()
+        #if targetEnvironment(simulator) || os(iOS)
+        // Enable HealthKit integration for real health data sync
+        let healthProvider: (any HealthDataProvider)? = HealthKitHealthDataProvider()
+        #else
+        let healthProvider: (any HealthDataProvider)? = nil
+        #endif
+        return AppState(repository: repository, healthProvider: healthProvider)
+    }()
     @State private var live = LiveModeController()
     @State private var subscriptions = SubscriptionController()
     @Environment(\.scenePhase) private var scenePhase
@@ -35,6 +44,7 @@ struct CareCompanionApp: App {
 
 private struct RootView: View {
     @Environment(AppState.self) private var state
+    @Environment(\.scenePhase) private var scenePhase
     @State private var showDemoMenu = false
     @State private var didApplyUITestReset = false
 
@@ -72,9 +82,23 @@ private struct RootView: View {
         .animation(.spring(response: 0.3, dampingFraction: 0.85), value: state.screen)
         .animation(.spring(response: 0.3, dampingFraction: 0.85), value: state.toastMessage)
         .onAppear {
-            guard CareRuntime.isUITesting, !didApplyUITestReset else { return }
-            didApplyUITestReset = true
-            Task { await state.resetDemo() }
+            if CareRuntime.isUITesting, !didApplyUITestReset {
+                didApplyUITestReset = true
+                Task { await state.resetDemo() }
+            }
+
+            // Set up automatic health sync on app launch
+            Task {
+                await state.setupAutomaticHealthSync()
+            }
+        }
+        .onChange(of: scenePhase) { oldPhase, newPhase in
+            // Sync health data when app becomes active
+            if newPhase == .active {
+                Task {
+                    await state.syncHealthData()
+                }
+            }
         }
     }
 }
@@ -188,6 +212,7 @@ private struct SeniorHomeView: View {
     @Environment(AppState.self) private var state
     @Binding var showDemoMenu: Bool
     @State private var showSOS = false
+    @State private var showHealthPermissions = false
 
     var body: some View {
         if state.seniorTab == .mood {
@@ -211,6 +236,14 @@ private struct SeniorHomeView: View {
                             .onLongPressGesture { showDemoMenu = true }
                             .accessibilityIdentifier("app.logo")
                         Spacer()
+                        Button {
+                            showHealthPermissions = true
+                        } label: {
+                            Image(systemName: "heart.text.square.fill")
+                                .font(.system(size: 24))
+                                .foregroundStyle(CareTheme.sage)
+                        }
+                        .accessibilityIdentifier("senior.healthSettings")
                         Button {
                             showSOS = true
                         } label: {
@@ -266,6 +299,9 @@ private struct SeniorHomeView: View {
         .background(CareTheme.background)
         .fullScreenCover(isPresented: $showSOS) {
             SOSFlowView(isPresented: $showSOS)
+        }
+        .sheet(isPresented: $showHealthPermissions) {
+            HealthPermissionsView()
         }
         }
     }
@@ -943,6 +979,23 @@ private struct AIInsightReferenceCard: View {
 private struct SeniorReferenceCard: View {
     @Environment(AppState.self) private var state
 
+    private var stepsDisplay: String {
+        guard let health = state.latestHealth else { return "2,840" }
+        return health.steps.formatted()
+    }
+    private var sleepDisplay: String {
+        guard let health = state.latestHealth else { return "6h 20min" }
+        return Self.sleepText(minutes: health.sleepMinutes)
+    }
+    private var dataSourceNotice: String {
+        state.latestHealth?.source == "healthkit"
+            ? "Steps and sleep synced from Apple Health."
+            : "Steps and sleep are demo data for this preview, not synced from HealthKit."
+    }
+    private static func sleepText(minutes: Int) -> String {
+        "\(minutes / 60)h \(minutes % 60)min"
+    }
+
     var body: some View {
         LovableCard {
             VStack(spacing: 16) {
@@ -971,10 +1024,10 @@ private struct SeniorReferenceCard: View {
                 LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
                     SmallMetric(title: "Medications", value: "\(state.medicationsTakenCount) of 4 taken", icon: "capsule", color: CareTheme.gold, identifier: "family.medications")
                     SmallMetric(title: "Mood today", value: state.currentMood?.rawValue ?? "Okay", icon: "waveform.path.ecg", color: CareTheme.sage)
-                    SmallMetric(title: "Steps", value: "2,840", icon: "shoeprints.fill", color: CareTheme.blue, identifier: "family.steps")
-                    SmallMetric(title: "Sleep", value: "6h 20min", icon: "moon", color: CareTheme.blue, identifier: "family.sleep")
+                    SmallMetric(title: "Steps", value: stepsDisplay, icon: "shoeprints.fill", color: CareTheme.blue, identifier: "family.steps")
+                    SmallMetric(title: "Sleep", value: sleepDisplay, icon: "moon", color: CareTheme.blue, identifier: "family.sleep")
                 }
-                Text("Steps and sleep are demo data for this preview, not synced from HealthKit.")
+                Text(dataSourceNotice)
                     .font(.system(size: 11))
                     .foregroundStyle(CareTheme.mutedText)
                     .accessibilityIdentifier("family.demoDataNotice")
@@ -1011,6 +1064,7 @@ private struct FamilyProfileView: View {
     @Environment(AppState.self) private var state
     @Environment(SubscriptionController.self) private var subscriptions
     @State private var showPlans = false
+    @State private var showHealthPermissions = false
 
     private struct EmergencyContact: Identifiable {
         let id = UUID()
@@ -1145,6 +1199,34 @@ private struct FamilyProfileView: View {
                 }
             }
 
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Settings").font(.system(size: 17, weight: .black)).foregroundStyle(CareTheme.secondaryText)
+                VStack(spacing: 0) {
+                    Button {
+                        showHealthPermissions = true
+                    } label: {
+                        HStack {
+                            Image(systemName: "heart.text.square.fill")
+                                .font(.system(size: 20))
+                                .foregroundStyle(.red)
+                                .frame(width: 32)
+                            Text("Health Data Permissions")
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundStyle(CareTheme.ink)
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 13, weight: .black))
+                                .foregroundStyle(CareTheme.secondaryText)
+                        }
+                        .padding(16)
+                        .background(.white, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(CareTheme.cardStroke))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("profile.healthPermissions")
+                }
+            }
+
             Button {
                 state.switchToSenior()
             } label: {
@@ -1159,6 +1241,10 @@ private struct FamilyProfileView: View {
             }
             .buttonStyle(.plain)
             .accessibilityIdentifier("profile.switchRole")
+        }
+        .sheet(isPresented: $showPlans) { PlansComparisonView() }
+        .sheet(isPresented: $showHealthPermissions) {
+            HealthPermissionsView()
         }
         .sheet(isPresented: $showPlans) { PlansComparisonView() }
     }
@@ -1430,18 +1516,26 @@ private struct AlertRow: View {
 }
 
 private struct HealthTimelineView: View {
+    @Environment(AppState.self) private var state
+
+    private var dataSourceNotice: String {
+        state.latestHealth?.source == "healthkit"
+            ? "Synced from Apple Health."
+            : "Demo data for this preview, not synced from HealthKit."
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             Text("Health Timeline").font(.system(size: 28, weight: .black))
             Text("Maya Sharma · last 7 days").font(.system(size: 15)).foregroundStyle(CareTheme.secondaryText)
-            Text("Demo data for this preview, not synced from HealthKit.")
+            Text(dataSourceNotice)
                 .font(.system(size: 12))
                 .foregroundStyle(CareTheme.mutedText)
                 .accessibilityIdentifier("timeline.demoDataNotice")
             AIInsightReferenceCard()
-            SleepChartCard()
-            StepsChartCard()
-            HeartChartCard()
+            SleepChartCard(latestHealth: state.latestHealth)
+            StepsChartCard(latestHealth: state.latestHealth)
+            HeartChartCard(latestHealth: state.latestHealth)
             AdherenceCard()
             MoodTrendCard()
         }
@@ -1449,7 +1543,13 @@ private struct HealthTimelineView: View {
 }
 
 private struct SleepChartCard: View {
+    let latestHealth: HealthSnapshot?
     let values: [CGFloat] = [7.4, 7.1, 6.8, 7.2, 6.1, 5.9, 6.3]
+
+    private var sleepDisplay: String {
+        guard let health = latestHealth else { return "6h 20min" }
+        return "\(health.sleepMinutes / 60)h \(health.sleepMinutes % 60)min"
+    }
 
     var body: some View {
         LovableCard {
@@ -1457,7 +1557,7 @@ private struct SleepChartCard: View {
                 HStack {
                     Label("Sleep", systemImage: "moon").font(.system(size: 16, weight: .black)).foregroundStyle(CareTheme.secondaryText)
                     Spacer()
-                    Text("6h 20min last night").font(.system(size: 15, weight: .black))
+                    Text("\(sleepDisplay) last night").font(.system(size: 15, weight: .black))
                 }
                 HStack(alignment: .bottom, spacing: 10) {
                     ForEach(Array(values.enumerated()), id: \.offset) { _, value in
@@ -1479,13 +1579,20 @@ private struct SleepChartCard: View {
 }
 
 private struct StepsChartCard: View {
+    let latestHealth: HealthSnapshot?
+
+    private var stepsDisplay: String {
+        guard let health = latestHealth else { return "2,840" }
+        return health.steps.formatted()
+    }
+
     var body: some View {
         LovableCard {
             VStack(alignment: .leading, spacing: 14) {
                 HStack {
                     Label("Steps", systemImage: "shoeprints.fill").font(.system(size: 16, weight: .black)).foregroundStyle(CareTheme.secondaryText)
                     Spacer()
-                    Text("2,840 today").font(.system(size: 15, weight: .black))
+                    Text("\(stepsDisplay) today").font(.system(size: 15, weight: .black))
                 }
                 MiniLineChart(color: CareTheme.sage)
                     .frame(height: 140)
@@ -1495,13 +1602,20 @@ private struct StepsChartCard: View {
 }
 
 private struct HeartChartCard: View {
+    let latestHealth: HealthSnapshot?
+
+    private var heartRateDisplay: String {
+        guard let health = latestHealth else { return "72 bpm" }
+        return "\(health.restingHeartRate) bpm"
+    }
+
     var body: some View {
         LovableCard {
             VStack(alignment: .leading, spacing: 14) {
                 HStack {
                     Label("Resting heart rate", systemImage: "heart").font(.system(size: 16, weight: .black)).foregroundStyle(CareTheme.secondaryText)
                     Spacer()
-                    Text("72 bpm").font(.system(size: 15, weight: .black))
+                    Text(heartRateDisplay).font(.system(size: 15, weight: .black))
                 }
                 MiniLineChart(color: CareTheme.coral)
                     .frame(height: 140)
