@@ -206,7 +206,7 @@ private struct SeniorHomeView: View {
 
     var body: some View {
         if state.seniorTab == .mood {
-            MoodScreen()
+            EnhancedMoodView()
         } else if state.seniorTab == .medicines {
             SeniorMedicinesScreen()
         } else if state.seniorTab == .visits {
@@ -336,15 +336,28 @@ private struct SeniorBarButton: View {
 }
 
 private struct SeniorMedicinesScreen: View {
+    @State private var showingMedicationManagement = false
+
     var body: some View {
         VStack(spacing: 0) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
-                    Text("Medicines")
-                        .font(.system(size: 32, weight: .black, design: .rounded))
-                        .foregroundStyle(CareTheme.ink)
-                        .padding(.top, 26)
-                        .accessibilityIdentifier("senior.medicines.title")
+                    HStack {
+                        Text("Medicines")
+                            .font(.system(size: 32, weight: .black, design: .rounded))
+                            .foregroundStyle(CareTheme.ink)
+                            .accessibilityIdentifier("senior.medicines.title")
+                        Spacer()
+                        Button {
+                            showingMedicationManagement = true
+                        } label: {
+                            Image(systemName: "ellipsis.circle")
+                                .font(.system(size: 24))
+                                .foregroundStyle(CareTheme.sage)
+                        }
+                    }
+                    .padding(.top, 26)
+
                     MedicineListView()
                 }
                 .padding(.horizontal, 20)
@@ -353,6 +366,9 @@ private struct SeniorMedicinesScreen: View {
             SeniorBottomBar()
         }
         .background(CareTheme.background)
+        .sheet(isPresented: $showingMedicationManagement) {
+            MedicationManagementView()
+        }
     }
 }
 
@@ -956,6 +972,8 @@ private struct SmallMetric: View {
 private struct FamilyProfileView: View {
     @Environment(AppState.self) private var state
     @State private var showHealthPermissions = false
+    @State private var showSettings = false
+    @State private var showEditProfile = false
 
     private struct EmergencyContact: Identifiable {
         let id = UUID()
@@ -972,23 +990,49 @@ private struct FamilyProfileView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Senior Profile")
-                    .font(.system(size: 28, weight: .black))
-                    .accessibilityIdentifier("profile.title")
-                Text("Settings & care plan")
-                    .font(.system(size: 15))
-                    .foregroundStyle(CareTheme.secondaryText)
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Senior Profile")
+                        .font(.system(size: 28, weight: .black))
+                        .accessibilityIdentifier("profile.title")
+                    Text("Settings & care plan")
+                        .font(.system(size: 15))
+                        .foregroundStyle(CareTheme.secondaryText)
+                }
+                Spacer()
+                Button {
+                    showSettings = true
+                } label: {
+                    Image(systemName: "gearshape")
+                        .font(.system(size: 24))
+                        .foregroundStyle(CareTheme.sage)
+                }
+                .accessibilityIdentifier("profile.settings")
             }
 
             LovableCard {
-                HStack(spacing: 14) {
-                    AvatarCircle(text: "MS", color: CareTheme.gold, size: 56)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Maya Sharma").font(.system(size: 20, weight: .black))
-                        Text("74 years · Grandmother").font(.system(size: 14)).foregroundStyle(CareTheme.secondaryText)
-                        Text("Kathmandu, Nepal").font(.system(size: 14)).foregroundStyle(CareTheme.secondaryText)
+                VStack(spacing: 14) {
+                    HStack(spacing: 14) {
+                        AvatarCircle(text: "MS", color: CareTheme.gold, size: 56)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Maya Sharma").font(.system(size: 20, weight: .black))
+                            Text("74 years · Grandmother").font(.system(size: 14)).foregroundStyle(CareTheme.secondaryText)
+                            Text("Kathmandu, Nepal").font(.system(size: 14)).foregroundStyle(CareTheme.secondaryText)
+                        }
+                        Spacer()
                     }
+                    Button {
+                        showEditProfile = true
+                    } label: {
+                        Label("Edit Profile", systemImage: "pencil")
+                            .font(.system(size: 15, weight: .bold))
+                            .foregroundStyle(CareTheme.sageDark)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                            .background(CareTheme.sagePale, in: RoundedRectangle(cornerRadius: 12))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("profile.edit")
                 }
             }
 
@@ -1092,6 +1136,12 @@ private struct FamilyProfileView: View {
         }
         .sheet(isPresented: $showHealthPermissions) {
             HealthPermissionsView()
+        }
+        .sheet(isPresented: $showSettings) {
+            SettingsView()
+        }
+        .sheet(isPresented: $showEditProfile) {
+            EditSeniorProfileView()
         }
     }
 }
@@ -1651,5 +1701,627 @@ private struct ToastView: View {
             .frame(maxWidth: .infinity)
             .background(CareTheme.ink, in: RoundedRectangle(cornerRadius: 18))
             .shadow(color: .black.opacity(0.15), radius: 18, y: 8)
+    }
+}
+/// Enhanced mood recording with optional notes
+struct EnhancedMoodView: View {
+    @Environment(AppState.self) private var state
+    @State private var selectedMood: Mood?
+    @State private var note = ""
+    @FocusState private var noteFieldFocused: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Spacer().frame(height: 100)
+
+            Text("How are you feeling\ntoday?")
+                .font(.system(size: 32, weight: .black, design: .rounded))
+                .lineSpacing(1)
+                .foregroundStyle(CareTheme.ink)
+
+            Text("Tap one face, add a note if you like.")
+                .font(.system(size: 18))
+                .foregroundStyle(CareTheme.secondaryText)
+                .padding(.top, 18)
+                .padding(.bottom, 32)
+
+            VStack(spacing: 16) {
+                moodButton("😊", title: "Great", mood: .great)
+                moodButton("😐", title: "Okay", mood: .okay)
+                moodButton("😔", title: "Not great", mood: .low)
+            }
+
+            if selectedMood != nil {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Add a note (optional)")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(CareTheme.secondaryText)
+
+                    TextField("How are things going?", text: $note, axis: .vertical)
+                        .lineLimit(3...6)
+                        .textFieldStyle(.roundedBorder)
+                        .focused($noteFieldFocused)
+
+                    Button {
+                        Task {
+                            await state.recordMood(selectedMood!, note: note.isEmpty ? nil : note)
+                            state.switchToFamily()
+                        }
+                    } label: {
+                        Text("Save Mood")
+                            .font(.system(size: 18, weight: .bold))
+                            .foregroundStyle(.white)
+                            .frame(maxWidth: .infinity, minHeight: 54)
+                            .background(CareTheme.sage, in: RoundedRectangle(cornerRadius: 16))
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(.top, 24)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+
+            Spacer()
+        }
+        .padding(.horizontal, 24)
+        .background(CareTheme.background)
+        .animation(.spring(response: 0.3, dampingFraction: 0.85), value: selectedMood)
+    }
+
+    private func moodButton(_ emoji: String, title: String, mood: Mood) -> some View {
+        Button {
+            if selectedMood == mood {
+                // If already selected and no note, record immediately
+                if note.isEmpty {
+                    Task {
+                        await state.recordMood(mood)
+                        state.switchToFamily()
+                    }
+                }
+            } else {
+                selectedMood = mood
+                noteFieldFocused = true
+            }
+        } label: {
+            HStack(spacing: 26) {
+                Text(emoji).font(.system(size: 42))
+                Text(title).font(.system(size: 28, weight: .black))
+                Spacer()
+                if selectedMood == mood {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 28))
+                        .foregroundStyle(CareTheme.sage)
+                }
+            }
+            .padding(.horizontal, 30)
+            .frame(height: 100)
+            .background(selectedMood == mood ? CareTheme.sagePale : .white,
+                       in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .stroke(selectedMood == mood ? CareTheme.sage : CareTheme.cardStroke, lineWidth: 2))
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+/// Family view of mood history with notes
+struct MoodHistoryView: View {
+    @Environment(AppState.self) private var state
+    @Environment(\.dismiss) private var dismiss
+
+    private var moodEntries: [MoodEntry] {
+        state.snapshot.moods
+            .filter { $0.seniorID == state.selectedSeniorID }
+            .sorted { $0.date > $1.date }
+    }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                if moodEntries.isEmpty {
+                    ContentUnavailableView(
+                        "No Mood Entries",
+                        systemImage: "face.smiling",
+                        description: Text("Mood entries will appear here")
+                    )
+                } else {
+                    ForEach(moodEntries) { entry in
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack {
+                                Text(entry.mood.rawValue)
+                                    .font(.system(size: 17, weight: .bold))
+                                Spacer()
+                                Text(entry.date, style: .date)
+                                    .font(.system(size: 14))
+                                    .foregroundStyle(CareTheme.secondaryText)
+                            }
+
+                            if let note = entry.note, !note.isEmpty {
+                                Text(note)
+                                    .font(.system(size: 15))
+                                    .foregroundStyle(CareTheme.secondaryText)
+                                    .padding(.top, 4)
+                            }
+                        }
+                        .padding(.vertical, 8)
+                    }
+                }
+            }
+            .navigationTitle("Mood History")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
+    }
+}
+/// Full medication CRUD with add, edit, delete, and adherence tracking
+struct MedicationManagementView: View {
+    @Environment(AppState.self) private var state
+    @Environment(\.dismiss) private var dismiss
+    @State private var showingAddMedication = false
+    @State private var editingMedication: Medication?
+
+    private var medications: [Medication] {
+        state.snapshot.medications.filter { $0.seniorID == state.selectedSeniorID }
+    }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    if medications.isEmpty {
+                        ContentUnavailableView(
+                            "No Medications",
+                            systemImage: "capsule",
+                            description: Text("Add medications to track daily adherence")
+                        )
+                    } else {
+                        ForEach(medications) { medication in
+                            MedicationRowView(medication: medication, onEdit: {
+                                editingMedication = medication
+                            })
+                        }
+                    }
+                }
+
+                Section {
+                    Button {
+                        showingAddMedication = true
+                    } label: {
+                        Label("Add Medication", systemImage: "plus")
+                    }
+                }
+            }
+            .navigationTitle("Medications")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+            .sheet(isPresented: $showingAddMedication) {
+                AddMedicationView()
+            }
+            .sheet(item: $editingMedication) { medication in
+                EditMedicationView(medication: medication)
+            }
+        }
+    }
+}
+
+private struct MedicationRowView: View {
+    @Environment(AppState.self) private var state
+    let medication: Medication
+    let onEdit: () -> Void
+    @State private var showingDeleteConfirmation = false
+
+    var body: some View {
+        HStack {
+            Button {
+                Task { await state.toggleMedication(id: medication.id) }
+            } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: medication.taken ? "checkmark.circle.fill" : "circle")
+                        .font(.system(size: 24))
+                        .foregroundStyle(medication.taken ? CareTheme.sage : CareTheme.secondaryText)
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(medication.name)
+                            .font(.system(size: 17, weight: .semibold))
+                            .foregroundStyle(CareTheme.ink)
+                        Text(medication.scheduledTime)
+                            .font(.system(size: 14))
+                            .foregroundStyle(CareTheme.secondaryText)
+                    }
+                }
+            }
+            .buttonStyle(.plain)
+
+            Spacer()
+
+            Menu {
+                Button {
+                    onEdit()
+                } label: {
+                    Label("Edit", systemImage: "pencil")
+                }
+
+                Button(role: .destructive) {
+                    showingDeleteConfirmation = true
+                } label: {
+                    Label("Delete", systemImage: "trash")
+                }
+            } label: {
+                Image(systemName: "ellipsis.circle")
+                    .font(.system(size: 20))
+                    .foregroundStyle(CareTheme.secondaryText)
+            }
+        }
+        .confirmationDialog("Delete Medication", isPresented: $showingDeleteConfirmation) {
+            Button("Delete", role: .destructive) {
+                Task { await state.deleteMedication(id: medication.id) }
+            }
+        } message: {
+            Text("Are you sure you want to delete \(medication.name)?")
+        }
+    }
+}
+
+private struct AddMedicationView: View {
+    @Environment(\.dismiss) private var dismiss
+    @Environment(AppState.self) private var state
+    @State private var name = ""
+    @State private var scheduledTime = "8:00 AM"
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Medication Details") {
+                    TextField("Name", text: $name)
+                    TextField("Scheduled Time", text: $scheduledTime)
+                        .textInputAutocapitalization(.never)
+                }
+
+                Section {
+                    Button("Add Medication") {
+                        Task {
+                            await state.addMedication(name: name, scheduledTime: scheduledTime)
+                            dismiss()
+                        }
+                    }
+                    .disabled(name.isEmpty || scheduledTime.isEmpty)
+                }
+            }
+            .navigationTitle("Add Medication")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+            }
+        }
+    }
+}
+
+private struct EditMedicationView: View {
+    @Environment(\.dismiss) private var dismiss
+    @Environment(AppState.self) private var state
+    let medication: Medication
+    @State private var name = ""
+    @State private var scheduledTime = ""
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Medication Details") {
+                    TextField("Name", text: $name)
+                    TextField("Scheduled Time", text: $scheduledTime)
+                        .textInputAutocapitalization(.never)
+                }
+
+                Section {
+                    Button("Save Changes") {
+                        Task {
+                            await state.updateMedication(id: medication.id, name: name, scheduledTime: scheduledTime)
+                            dismiss()
+                        }
+                    }
+                    .disabled(name.isEmpty || scheduledTime.isEmpty)
+                }
+            }
+            .navigationTitle("Edit Medication")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+            }
+            .onAppear {
+                name = medication.name
+                scheduledTime = medication.scheduledTime
+            }
+        }
+    }
+}
+/// App settings: sign out, demo reset, privacy controls, about
+struct SettingsView: View {
+    @Environment(AppState.self) private var state
+    @Environment(LiveModeController.self) private var live
+    @Environment(\.dismiss) private var dismiss
+    @State private var showingResetConfirmation = false
+    @State private var showingSignOutConfirmation = false
+
+    var body: some View {
+        NavigationStack {
+            List {
+                // Account Section (if signed in)
+                if live.isSignedIn {
+                    Section("Account") {
+                        if let email = live.signedInEmail {
+                            LabeledContent("Email", value: email)
+                        }
+
+                        if live.hasAccount, let account = state.snapshot.account.name as String? {
+                            LabeledContent("Family", value: account)
+                        }
+
+                        if live.isLive, let repo = live.repository {
+                            LabeledContent("Invite Code", value: repo.inviteCode)
+                                .textSelection(.enabled)
+                        }
+
+                        Button(role: .destructive) {
+                            showingSignOutConfirmation = true
+                        } label: {
+                            Label("Sign Out", systemImage: "rectangle.portrait.and.arrow.right")
+                        }
+                    }
+                }
+
+                // Demo Section
+                Section("Demo") {
+                    Button {
+                        showingResetConfirmation = true
+                    } label: {
+                        Label("Reset Demo", systemImage: "arrow.counterclockwise")
+                    }
+                }
+
+                // Privacy Section
+                Section("Privacy") {
+                    NavigationLink {
+                        PrivacyView()
+                    } label: {
+                        Label("Privacy & Data", systemImage: "hand.raised")
+                    }
+                }
+
+                // About Section
+                Section("About") {
+                    LabeledContent("Version", value: "1.0.0")
+                    LabeledContent("Build", value: "1")
+                    Link(destination: URL(string: "https://carecompanion.example.com")!) {
+                        Label("Website", systemImage: "globe")
+                    }
+                }
+            }
+            .navigationTitle("Settings")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+            .confirmationDialog("Reset Demo", isPresented: $showingResetConfirmation) {
+                Button("Reset", role: .destructive) {
+                    Task { await state.resetDemo() }
+                }
+            } message: {
+                Text("This will reset all demo data to the initial state.")
+            }
+            .confirmationDialog("Sign Out", isPresented: $showingSignOutConfirmation) {
+                Button("Sign Out", role: .destructive) {
+                    Task { await live.signOut() }
+                }
+            } message: {
+                Text("You'll need to sign in again to access your care data.")
+            }
+        }
+    }
+}
+
+private struct PrivacyView: View {
+    var body: some View {
+        List {
+            Section {
+                Text("CareCompanion processes health and care data locally on your device. Data is synced securely to your family account when you're signed in.")
+                    .font(.system(size: 15))
+                    .foregroundStyle(CareTheme.secondaryText)
+            }
+
+            Section("Data Collection") {
+                LabeledContent("Health Data", value: "With Permission")
+                LabeledContent("Location", value: "Never")
+                LabeledContent("Analytics", value: "None")
+            }
+
+            Section("Your Rights") {
+                Button("Delete My Data") {
+                    // Placeholder for data deletion
+                }
+                Button("Export My Data") {
+                    // Placeholder for data export
+                }
+            }
+        }
+        .navigationTitle("Privacy & Data")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+/// Edit senior profile details
+struct EditSeniorProfileView: View {
+    @Environment(\.dismiss) private var dismiss
+    @Environment(AppState.self) private var state
+
+    @State private var name = ""
+    @State private var age = 65
+    @State private var city = ""
+    @State private var timeZone = "UTC"
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Personal Information") {
+                    TextField("Name", text: $name)
+                    Stepper("Age: \(age)", value: $age, in: 1...130)
+                    TextField("City", text: $city)
+                }
+
+                Section("Location") {
+                    Picker("Time Zone", selection: $timeZone) {
+                        Text("Asia/Kathmandu").tag("Asia/Kathmandu")
+                        Text("America/Chicago").tag("America/Chicago")
+                        Text("America/New_York").tag("America/New_York")
+                        Text("America/Los_Angeles").tag("America/Los_Angeles")
+                        Text("Europe/London").tag("Europe/London")
+                        Text("UTC").tag("UTC")
+                    }
+                }
+
+                Section {
+                    Button("Save Changes") {
+                        Task {
+                            await state.updateSeniorProfile(
+                                name: name,
+                                age: age,
+                                city: city,
+                                timeZone: timeZone
+                            )
+                            dismiss()
+                        }
+                    }
+                    .disabled(name.isEmpty || city.isEmpty)
+                }
+            }
+            .navigationTitle("Edit Profile")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+            }
+            .onAppear {
+                if let senior = state.selectedSenior {
+                    name = senior.name
+                    age = senior.age
+                    city = senior.city
+                    timeZone = senior.timeZoneIdentifier
+                }
+            }
+        }
+    }
+}
+
+/// Emergency contacts management
+struct EmergencyContactsView: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var showingAddContact = false
+
+    // Demo contacts (in production, these would come from the repository)
+    struct EmergencyContact: Identifiable {
+        let id = UUID()
+        var name: String
+        var relation: String
+        var phone: String
+    }
+
+    @State private var contacts: [EmergencyContact] = [
+        EmergencyContact(name: "Diwas Sharma", relation: "Son", phone: "+1 512 555 0142"),
+        EmergencyContact(name: "Sunita Sharma", relation: "Daughter", phone: "+977 98 4100 2233")
+    ]
+
+    var body: some View {
+        NavigationStack {
+            List {
+                ForEach(contacts) { contact in
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(contact.name)
+                            .font(.system(size: 17, weight: .semibold))
+                        Text(contact.relation)
+                            .font(.system(size: 14))
+                            .foregroundStyle(CareTheme.secondaryText)
+                        Text(contact.phone)
+                            .font(.system(size: 14))
+                            .foregroundStyle(CareTheme.secondaryText)
+                    }
+                    .padding(.vertical, 4)
+                }
+                .onDelete { indexSet in
+                    contacts.remove(atOffsets: indexSet)
+                }
+            }
+            .navigationTitle("Emergency Contacts")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Done") { dismiss() }
+                }
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        showingAddContact = true
+                    } label: {
+                        Image(systemName: "plus")
+                    }
+                }
+            }
+            .sheet(isPresented: $showingAddContact) {
+                AddEmergencyContactView { contact in
+                    contacts.append(contact)
+                }
+            }
+        }
+    }
+}
+
+private struct AddEmergencyContactView: View {
+    @Environment(\.dismiss) private var dismiss
+    let onAdd: (EmergencyContactsView.EmergencyContact) -> Void
+
+    @State private var name = ""
+    @State private var relation = ""
+    @State private var phone = ""
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Contact Details") {
+                    TextField("Name", text: $name)
+                    TextField("Relation", text: $relation)
+                    TextField("Phone", text: $phone)
+                        .keyboardType(.phonePad)
+                }
+
+                Section {
+                    Button("Add Contact") {
+                        onAdd(EmergencyContactsView.EmergencyContact(
+                            name: name,
+                            relation: relation,
+                            phone: phone
+                        ))
+                        dismiss()
+                    }
+                    .disabled(name.isEmpty || relation.isEmpty || phone.isEmpty)
+                }
+            }
+            .navigationTitle("Add Contact")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+            }
+        }
     }
 }
