@@ -113,6 +113,50 @@ final class CareRecordsTests: XCTestCase {
     }
 }
 
+final class RepositoryRefreshTests: XCTestCase {
+    @MainActor
+    func testRefreshPullsChangesMadeOutsideAppState() async throws {
+        let repository = DemoCareRepository()
+        let state = AppState(repository: repository)
+        // Simulates a realtime write from Maya's phone landing in the shared repository.
+        try await repository.checkIn(seniorID: DemoCareRepository.mayaID, at: DemoCareRepository.referenceDate)
+        XCTAssertFalse(state.isCheckedIn)
+        await state.refresh()
+        XCTAssertTrue(state.isCheckedIn)
+    }
+
+    @MainActor
+    func testRefreshFailureKeepsLastKnownSnapshot() async {
+        let repository = FailingRefreshRepository()
+        let state = AppState(repository: repository)
+        let before = state.snapshot
+        await state.refresh()
+        XCTAssertEqual(state.snapshot, before)
+        XCTAssertEqual(state.toastMessage, "Couldn't refresh care data: Service is offline. Please check your connection.")
+    }
+}
+
+@MainActor
+private final class FailingRefreshRepository: CareRepository {
+    private let demo = DemoCareRepository()
+    var snapshot: CareSnapshot { demo.snapshot }
+    func refresh() async throws { throw CareServiceError.offline }
+    func checkIn(seniorID: String, at date: Date) async throws {}
+    func recordMood(_ mood: Mood, seniorID: String, at date: Date) async throws {}
+    func toggleMedication(id: String) async throws {}
+    func recordMedicationEvent(medicationID: String, taken: Bool, at date: Date) async throws {}
+    func upsertHealthSnapshots(_ snapshots: [HealthSnapshot]) async throws {}
+    func saveAppointment(_ appointment: Appointment) async throws {}
+    func deleteAppointment(id: String) async throws {}
+    func triggerSOS(seniorID: String, at date: Date) async throws {}
+    func acknowledgeAlerts(seniorID: String) async throws {}
+    func saveCareInsight(_ insight: CareInsight, seniorID: String) async throws {}
+    func saveAppointmentPrep(_ prep: AppointmentPrep, appointmentID: String) async throws {}
+    func addSenior(_ senior: AccountSenior) async throws {}
+    func updateSenior(_ senior: AccountSenior) async throws {}
+    func reset() async {}
+}
+
 final class AuthSessionTests: XCTestCase {
     func testEmailValidation() {
         XCTAssertTrue(EmailAddress.isValid("diwas@example.com"))

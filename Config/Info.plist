@@ -6,5 +6,16 @@
 	<string>$(SUPABASE_HOST)</string>
 	<key>SupabaseAnonKey</key>
 	<string>$(SUPABASE_ANON_KEY)</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.carecompanion.txst.auth</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>carecompanion</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>

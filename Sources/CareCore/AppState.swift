@@ -60,6 +60,18 @@ import Observation
         screen = .familyDashboard
         familyTab = hasEmergency ? .emergency : tab
     }
+    public func refresh() async {
+        do {
+            try await repository.refresh()
+            snapshot = repository.snapshot
+            if !snapshot.seniors.contains(where: { $0.id == selectedSeniorID }) {
+                selectedSeniorID = snapshot.seniors.first?.id ?? ""
+            }
+        } catch {
+            showDemoToast("Couldn't refresh care data: \(error.localizedDescription)")
+        }
+    }
+
     public func checkIn() async {
         do {
             try await repository.checkIn(seniorID: selectedSeniorID, at: now())
