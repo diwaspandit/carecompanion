@@ -8,7 +8,7 @@
 
 **Tech Stack:** Swift, SwiftUI, iOS 17+, NavigationStack, async/await, XCTest, Swift Charts where useful, RevenueCat Purchases, RevenueCatUI, Supabase Swift and HealthKit.
 
-**Spec:** `AGENTS.md`, `docs/IMPLEMENTATION.md`, `docs/STATUS.md`, `docs/LOVABLE_REFERENCE.md`
+**Spec:** `AGENTS.md`, `docs/STATUS.md`, `docs/LOVABLE_REFERENCE.md`
 
 ## Global Constraints
 

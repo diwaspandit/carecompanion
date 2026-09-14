@@ -92,7 +92,7 @@ Lovable authentication dependency: resolved. Public preview verified through gst
 
 ## Next action
 
-Once Xcode is available, use DEVELOPER_DIR as documented in IMPLEMENTATION.md, establish the actual passing app build, execute XCTest and fix failures before advancing to Phase 2. This checkpoint is partial foundation progress, not a stable iOS phase completion.
+Once Xcode is available, use the DEVELOPER_DIR/xcodebuild command documented above, establish the actual passing app build, execute XCTest and fix failures before advancing to Phase 2. This checkpoint is partial foundation progress, not a stable iOS phase completion.
 
 ## Latest Lovable progress review
 
