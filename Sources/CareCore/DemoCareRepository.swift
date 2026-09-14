@@ -14,7 +14,7 @@ import Foundation
 
     // MARK: - Mood Operations
     /// Record a mood entry for a senior
-    func recordMood(_ mood: Mood, seniorID: String, at date: Date) async throws
+    func recordMood(_ mood: Mood, seniorID: String, at date: Date, note: String?) async throws
 
     // MARK: - Medication Operations
     /// Toggle medication taken/not taken status
@@ -22,6 +22,15 @@ import Foundation
 
     /// Record a medication event
     func recordMedicationEvent(medicationID: String, taken: Bool, at date: Date) async throws
+
+    /// Add a new medication
+    func addMedication(seniorID: String, name: String, scheduledTime: String) async throws
+
+    /// Update medication details
+    func updateMedication(id: String, name: String, scheduledTime: String) async throws
+
+    /// Delete a medication
+    func deleteMedication(id: String) async throws
 
     // MARK: - Health Data Operations
     /// Update health snapshots for a senior
@@ -76,7 +85,7 @@ import Foundation
             members: [AccountMember(id: "member-diwas", accountID: account, name: "Diwas", city: "Austin, Texas", role: .family)],
             seniors: [AccountSenior(id: senior, accountID: account, name: "Maya Sharma", age: 74, city: "Kathmandu, Nepal", timeZoneIdentifier: "Asia/Kathmandu")],
             checkIns: [],
-            moods: [MoodEntry(id: "mood-\(senior)", seniorID: senior, mood: .okay, date: date)],
+            moods: [MoodEntry(id: "mood-\(senior)", seniorID: senior, mood: .okay, date: date, note: nil)],
             medications: (0..<4).map { index in
                 Medication(id: "med-\(index)", seniorID: senior,
                            name: ["Amlodipine", "Metformin", "Calcium + D3", "Atorvastatin"][index],
@@ -102,10 +111,10 @@ import Foundation
     }
 
     // MARK: - Mood Operations
-    public func recordMood(_ mood: Mood, seniorID: String, at date: Date) async throws {
+    public func recordMood(_ mood: Mood, seniorID: String, at date: Date, note: String? = nil) async throws {
         guard contains(seniorID) else { throw CareServiceError.invalidState("Senior not found") }
         snapshot.moods.removeAll { $0.seniorID == seniorID }
-        snapshot.moods.append(MoodEntry(id: "mood-\(seniorID)", seniorID: seniorID, mood: mood, date: date))
+        snapshot.moods.append(MoodEntry(id: "mood-\(seniorID)", seniorID: seniorID, mood: mood, date: date, note: note))
     }
 
     // MARK: - Medication Operations
@@ -121,6 +130,30 @@ import Foundation
             throw CareServiceError.invalidState("Medication not found")
         }
         snapshot.medications[index].taken = taken
+    }
+
+    public func addMedication(seniorID: String, name: String, scheduledTime: String) async throws {
+        guard contains(seniorID) else { throw CareServiceError.invalidState("Senior not found") }
+        let newMed = Medication(
+            id: "med-\(UUID().uuidString)",
+            seniorID: seniorID,
+            name: name,
+            scheduledTime: scheduledTime,
+            taken: false
+        )
+        snapshot.medications.append(newMed)
+    }
+
+    public func updateMedication(id: String, name: String, scheduledTime: String) async throws {
+        guard let index = snapshot.medications.firstIndex(where: { $0.id == id }) else {
+            throw CareServiceError.invalidState("Medication not found")
+        }
+        snapshot.medications[index].name = name
+        snapshot.medications[index].scheduledTime = scheduledTime
+    }
+
+    public func deleteMedication(id: String) async throws {
+        snapshot.medications.removeAll { $0.id == id }
     }
 
     // MARK: - Health Data Operations

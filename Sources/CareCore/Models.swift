@@ -42,6 +42,15 @@ public struct MoodEntry: Identifiable, Equatable, Codable, Sendable {
     public let seniorID: String
     public var mood: Mood
     public var date: Date
+    public var note: String?
+
+    public init(id: String, seniorID: String, mood: Mood, date: Date, note: String? = nil) {
+        self.id = id
+        self.seniorID = seniorID
+        self.mood = mood
+        self.date = date
+        self.note = note
+    }
 }
 public struct Medication: Identifiable, Equatable, Codable, Sendable {
     public let id: String

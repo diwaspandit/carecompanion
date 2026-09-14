@@ -71,10 +71,11 @@ public struct MoodEntryRow: Codable, Equatable, Sendable {
     public var id: String
     public var seniorID: String
     public var mood: String
+    public var note: String?
     public var occurredAt: Date
 
     enum CodingKeys: String, CodingKey {
-        case id, mood
+        case id, mood, note
         case seniorID = "senior_id"
         case occurredAt = "occurred_at"
     }
@@ -224,7 +225,7 @@ public struct CareRecords: Equatable, Sendable {
                     guard let mood = Mood(rawValue: row.mood) else {
                         throw CareServiceError.invalidState("Unknown mood: \(row.mood)")
                     }
-                    return MoodEntry(id: row.id, seniorID: row.seniorID, mood: mood, date: row.occurredAt)
+                    return MoodEntry(id: row.id, seniorID: row.seniorID, mood: mood, date: row.occurredAt, note: row.note)
                 },
             medications: medications.map { row in
                 let latest = latestEventByMedication[row.id]

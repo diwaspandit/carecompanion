@@ -90,9 +90,9 @@ import Observation
         }
     }
 
-    public func recordMood(_ mood: Mood) async {
+    public func recordMood(_ mood: Mood, note: String? = nil) async {
         do {
-            try await repository.recordMood(mood, seniorID: selectedSeniorID, at: now())
+            try await repository.recordMood(mood, seniorID: selectedSeniorID, at: now(), note: note)
             snapshot = repository.snapshot
             showDemoToast("Mood recorded for today's care context.")
         } catch {
@@ -106,6 +106,36 @@ import Observation
             snapshot = repository.snapshot
         } catch {
             showDemoToast("Failed to update medication: \(error.localizedDescription)")
+        }
+    }
+
+    public func addMedication(name: String, scheduledTime: String) async {
+        do {
+            try await repository.addMedication(seniorID: selectedSeniorID, name: name, scheduledTime: scheduledTime)
+            snapshot = repository.snapshot
+            showDemoToast("Medication added successfully.")
+        } catch {
+            showDemoToast("Failed to add medication: \(error.localizedDescription)")
+        }
+    }
+
+    public func updateMedication(id: String, name: String, scheduledTime: String) async {
+        do {
+            try await repository.updateMedication(id: id, name: name, scheduledTime: scheduledTime)
+            snapshot = repository.snapshot
+            showDemoToast("Medication updated successfully.")
+        } catch {
+            showDemoToast("Failed to update medication: \(error.localizedDescription)")
+        }
+    }
+
+    public func deleteMedication(id: String) async {
+        do {
+            try await repository.deleteMedication(id: id)
+            snapshot = repository.snapshot
+            showDemoToast("Medication deleted.")
+        } catch {
+            showDemoToast("Failed to delete medication: \(error.localizedDescription)")
         }
     }
 
@@ -265,6 +295,23 @@ import Observation
 
         // Stop background sync
         await healthProvider.stopBackgroundSync()
+    }
+
+    // MARK: - Senior Profile Management
+
+    public func updateSeniorProfile(name: String, age: Int, city: String, timeZone: String) async {
+        guard var senior = selectedSenior else { return }
+        senior.name = name
+        senior.age = age
+        senior.city = city
+        senior.timeZoneIdentifier = timeZone
+        do {
+            try await repository.updateSenior(senior)
+            snapshot = repository.snapshot
+            showDemoToast("Senior profile updated.")
+        } catch {
+            showDemoToast("Failed to update senior: \(error.localizedDescription)")
+        }
     }
 }
 
