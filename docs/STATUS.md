@@ -9,6 +9,7 @@ Updated: 2026-09-14. Claude/Lovable reference UI plus functional demo click-thro
 - Added deterministic `MockAIService`, `CareInsight`, and `AppointmentPrep` with safety language that avoids diagnosis, treatment, emergency inference and disease-probability claims.
 - Added medication toggling and updated demo data to named medications, 3 of 4 taken, Maya/Diwas story values and cardiology follow-up.
 - RevenueCat entitlement seams are present through `SubscriptionAccess` and expected entitlement names (`plus_plan`, `pro_plan`, `premium_insights`). The running app currently uses a local Test Store fallback sheet because the RevenueCat SDK/package/API key are not configured in this repository yet.
+- Added `docs/FULL_DEVELOPMENT_PLAN.md` as the phased production roadmap covering demo stabilization, service boundaries, Supabase information flow, RevenueCat sponsor/premium integration, Apple Health sync, safe AI and launch QA.
 
 ## 2026-09-14 verification
 
@@ -91,7 +92,7 @@ Lovable authentication dependency: resolved. Public preview verified through gst
 
 ## Next action
 
-Once Xcode is available, point DEVELOPER_DIR at it, establish the actual passing app build, execute XCTest and fix failures before advancing to Phase 2. This checkpoint is partial foundation progress, not a stable iOS phase completion.
+Once Xcode is available, use DEVELOPER_DIR as documented in IMPLEMENTATION.md, establish the actual passing app build, execute XCTest and fix failures before advancing to Phase 2. This checkpoint is partial foundation progress, not a stable iOS phase completion.
 
 ## Latest Lovable progress review
 
