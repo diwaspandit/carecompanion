@@ -60,7 +60,7 @@ private struct RootView: View {
         .onAppear {
             guard CareRuntime.isUITesting, !didApplyUITestReset else { return }
             didApplyUITestReset = true
-            state.resetDemo()
+            Task { await state.resetDemo() }
         }
     }
 }
@@ -220,7 +220,7 @@ private struct SeniorHomeView: View {
                     }
 
             Button {
-                state.checkIn()
+                Task { await state.checkIn() }
             } label: {
                 VStack(spacing: 22) {
                     CircleIcon(systemName: state.isCheckedIn ? "checkmark" : "heart", color: .white, size: 82, iconSize: 44, fillOpacity: 0.24)
@@ -235,7 +235,7 @@ private struct SeniorHomeView: View {
                     .accessibilityIdentifier("senior.checkIn")
                     .simultaneousGesture(TapGesture().onEnded {
                         if CareRuntime.isUITesting {
-                            state.checkIn()
+                            Task { await state.checkIn() }
                         }
                     })
 
@@ -397,7 +397,7 @@ private struct MedicineRow: View {
 
     var body: some View {
         Button {
-            state.toggleMedication(id: medication.id)
+            Task { await state.toggleMedication(id: medication.id) }
         } label: {
             HStack(spacing: 18) {
                 ZStack {
@@ -498,8 +498,10 @@ private struct MoodScreen: View {
 
     private func moodButton(_ emoji: String, title: String, mood: Mood) -> some View {
         Button {
-            state.recordMood(mood)
-            state.switchToFamily()
+            Task {
+                await state.recordMood(mood)
+                state.switchToFamily()
+            }
         } label: {
             HStack(spacing: 26) {
                 Text(emoji).font(.system(size: 42))
@@ -515,8 +517,10 @@ private struct MoodScreen: View {
         .accessibilityIdentifier("mood.\(title.replacingOccurrences(of: " ", with: "").lowercased())")
         .simultaneousGesture(TapGesture().onEnded {
             if CareRuntime.isUITesting {
-                state.recordMood(mood)
-                state.switchToFamily()
+                Task {
+                    await state.recordMood(mood)
+                    state.switchToFamily()
+                }
             }
         })
     }
@@ -548,7 +552,7 @@ private struct SOSFlowView: View {
                 seconds -= 1
             }
             if !notified {
-                state.triggerSOS()
+                await state.triggerSOS()
                 notified = true
             }
         }
@@ -1172,8 +1176,10 @@ private struct AlertsView: View {
                 } onMessage: {
                     state.familyTab = .chats
                 } onDismiss: {
-                    state.acknowledgeEmergency()
-                    dismissedAlerts.insert("emergency-active")
+                    Task {
+                        await state.acknowledgeEmergency()
+                        dismissedAlerts.insert("emergency-active")
+                    }
                 }
                 .accessibilityIdentifier("alerts.sos")
             }
@@ -1483,15 +1489,19 @@ private struct DemoMenuView: View {
                 Section("Demo scenarios") {
                     ForEach(DemoScenario.allCases, id: \.self) { scenario in
                         Button(scenario.rawValue) {
-                            DemoScenarioController(state: state).apply(scenario)
-                            dismiss()
+                            Task {
+                                await DemoScenarioController(state: state).apply(scenario)
+                                dismiss()
+                            }
                         }
                     }
                 }
                 Section("Controls") {
                     Button("Reset complete demo") {
-                        state.resetDemo()
-                        dismiss()
+                        Task {
+                            await state.resetDemo()
+                            dismiss()
+                        }
                     }
                     .accessibilityIdentifier("demo.reset")
                     Button("Unlock premium preview") {
