@@ -1,6 +1,37 @@
 # CareCompanion status
 
-Updated: 2026-09-14. Phase 1 production architecture hardening complete on branch `phase-1`.
+Updated: 2026-09-14. Phase 2 (database and account information flow) code complete on branch `phase-2`; live-project migration pending credentials.
+
+## 2026-09-14 Phase 2: Database And Account Information Flow (branch `phase-2`)
+
+**Completed:**
+- ✅ Supabase Swift SDK 2.55.2 linked to the app target only. CareCore stays dependency-free, so `swift test` needs no network.
+- ✅ Secrets via git-ignored `Config/Secrets.xcconfig` → `Config/Info.plist`. `SupabaseConfig.sharedClient` is `nil` without secrets, so fresh clones stay in demo mode.
+- ✅ Schema for all 15 planned tables, with `updated_at` triggers and indexes for membership, dashboard, latest-health and realtime feed queries (`Supabase/migrations/20260914000001_care_schema.sql`).
+- ✅ RLS on every table, requiring membership in the row's `account_id`. Senior-scoped writes must also reference a senior of that account. The anon role is revoked (`20260914000002_rls_and_account_flow.sql`).
+- ✅ `create_care_account` / `join_care_account` RPCs with invite codes, an auto-created profile per auth user, and the realtime publication for 8 care tables.
+- ✅ `SupabaseCareRepository` implements `CareRepository` (reads, all writes, idempotent SOS, soft deletes) and refreshes on realtime changes filtered by account.
+- ✅ `AuthSessionService` protocol and `DemoAuthSessionService` bypass in CareCore; `SupabaseAuthSessionService` uses a magic link with the `carecompanion://login-callback` URL scheme.
+- ✅ `CareRecords` maps rows to `CareSnapshot`, with "today" evaluated in the senior's time zone; `AppState.refresh()` picks up external changes.
+- ✅ `docs/DATABASE.md` covers the schema, RLS policy intent, account data flow and setup checklist.
+
+**Verification:**
+- PASS: `swift test` — 42 XCTest cases, 0 failures (11 new).
+- PASS: `Supabase/tests/run_local.sh` — migrations apply cleanly on local Postgres 15; RLS contract test passes. It fails as expected when a read policy is weakened to `using (true)`.
+- PASS: iOS Simulator build (`xcodebuild … ARCHS=arm64 ONLY_ACTIVE_ARCH=YES EXCLUDED_ARCHS=x86_64 build`), no warnings in `App/Services`.
+- PASS: demo mode still launches on iPhone 17 simulator; onboarding → Senior Home works offline.
+
+**Exit criteria status:**
+- ✅ Cross-account reads are denied by RLS (local contract test).
+- ✅ Demo mode still runs when Supabase is unreachable (demo never constructs a client).
+- NOT COMPLETE: migrations not yet applied to the live project (`ncqzcdaudhfwvzkosldj`). This needs the database password or a manual SQL Editor run.
+- NOT COMPLETE: "Maya and Diwas share one account" and "realtime refreshes the family dashboard" are implemented and covered by SQL tests, but have not been exercised end-to-end on devices. No production-mode UI exists until Phase 5 onboarding.
+
+**Build note:** a plain simulator build also tries x86_64, and the CareCore link fails for that slice. Use the arm64-only flags above on Apple Silicon.
+
+**Next action:** apply migrations to the live project, add the redirect URL in the Supabase dashboard, then continue with Phase 3 (RevenueCat).
+
+---
 
 ## 2026-09-14 Phase 1: Production Architecture Hardening (branch `phase-1`)
 

@@ -11,3 +11,10 @@
 - SwiftPM cache paths are redirected to /tmp for this sandbox. Command Line Tools can compile CareCore but does not ship XCTest; retain XCTest coverage and use a separate dependency-free smoke executable for limited interim behavior verification.
 
 - 2026-09-14: Public Lovable reference inspected; screenshots and translation notes captured in docs/reference/. Preserve its visual hierarchy while retaining Maya-only scope, real RevenueCat gating and honest local-demo SOS wording. No native feature phase advanced while Xcode remains unavailable.
+
+- 2026-09-14 (Phase 2): Vendor-backed services live in `App/Services/` (app target), not `Sources/CareCore/` as the Phase 2 file list suggested. CareCore keeps only protocols, demo implementations and pure mapping, so `swift test` stays offline and dependency-free. This matches Phase 3's `App/Services/RevenueCatSubscriptionService.swift` placement.
+- 2026-09-14 (Phase 2): The iOS app connects with the Supabase Swift SDK and the publishable key, with RLS as the security boundary. There is no custom server and no direct Postgres connection from the app, and the service_role key is never in the client.
+- 2026-09-14 (Phase 2): Every care table denormalizes `account_id`, so RLS is one membership lookup and realtime can filter per account. Inserts also check `senior_in_account` to block cross-account senior references.
+- 2026-09-14 (Phase 2): Medication "taken" is derived from the latest `medication_events` row on the senior's local day, not stored as a flag.
+- 2026-09-14 (Phase 2): Supabase host is stored without the scheme in xcconfig, because `//` starts a comment there. Custom keys go through `Config/Info.plist`, since generated Info.plist ignores custom `INFOPLIST_KEY_*`.
+- 2026-09-14 (Phase 2): Production mode is not wired into app startup yet. The demo stays the only launch path until Phase 5 provides sign-in and account onboarding UI.
