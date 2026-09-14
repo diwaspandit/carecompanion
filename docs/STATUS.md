@@ -41,12 +41,24 @@ Updated: 2026-09-14. `phase-4` merges `dev` (Phase 2 Supabase database and accou
   - `syncHealthData()` - fetches and saves health snapshots
   - `checkHealthPermissionStatus()` - returns current permission state
   - `requestHealthPermissions()` - requests HealthKit authorization
+  - `setupAutomaticHealthSync()` - enables background and foreground sync
+  - `teardownAutomaticHealthSync()` - cleanup observers
+- ✅ **Automatic Background Sync** (HKObserverQuery):
+  - Monitors HealthKit for new data (hourly frequency)
+  - Posts notification when new health data arrives
+  - AppState automatically syncs in response
+  - No manual sync needed
+- ✅ **Automatic Foreground Sync** (App Lifecycle):
+  - Syncs when app becomes active (scenePhase monitoring)
+  - Syncs on app launch
+  - Ensures fresh data when senior opens app
+- ✅ Added background-delivery entitlement and background modes
 - ✅ Added public initializer to HealthSnapshot struct for external creation
 - ✅ Updated FamilyProfileView to include Health Permissions access in Settings
 - ✅ Fixed Swift 6 Sendable conformance by converting lazy var to computed property
 - ✅ Created comprehensive `docs/HEALTHKIT.md` documentation
-- ✅ Added 7 new health-related tests (38 total tests, all passing)
-- ✅ All tests pass: `swift test` — 38 XCTest cases, 0 failures
+- ✅ Added 7 new health-related tests (49 total tests, all passing)
+- ✅ All tests pass: `swift test` — 49 XCTest cases, 0 failures
 - ✅ iOS build succeeds: `xcodebuild ... ONLY_ACTIVE_ARCH=YES build` — BUILD SUCCEEDED
 
 **Exit Criteria Met:**

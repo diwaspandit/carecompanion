@@ -54,7 +54,31 @@ User opens Health Permissions →
     User taps "Allow Health Access" →
       iOS shows system permission dialog →
         User grants permission →
-          App automatically syncs health data
+          App sets up automatic sync →
+            Initial sync performed →
+              Background observers started
+```
+
+### Automatic Sync (No User Action Required)
+```
+1. Background Sync:
+   New health data added to Health app →
+     HKObserverQuery detects change →
+       Notification posted →
+         AppState.syncHealthData() triggered →
+           Data synced to database
+
+2. Foreground Sync:
+   App becomes active (user opens app) →
+     scenePhase changes to .active →
+       AppState.syncHealthData() triggered →
+         Latest data synced to database
+
+3. On Launch:
+   App launches →
+     setupAutomaticHealthSync() called →
+       Background observers started →
+         Ready for automatic updates
 ```
 
 ### Data Sync
@@ -235,11 +259,27 @@ func testHealthPermissionFlow() {
 - Check AppState initialization doesn't set healthProvider for demo
 - Demo data should always have `source = "Demo data"`
 
+## Automatic Sync
+
+### Background Sync (✅ Implemented)
+- `HKObserverQuery` monitors for new HealthKit data
+- Background delivery enabled with hourly frequency
+- Automatic sync triggered when new health data arrives
+- No user action required
+
+### Foreground Sync (✅ Implemented)
+- Syncs when app becomes active
+- Syncs on app launch
+- Ensures fresh data when senior opens app
+
+### Manual Sync (✅ Available)
+- "Sync Now" button in Health Permissions view
+- Fallback option for users who want immediate refresh
+
 ## Future Enhancements
 
-### Background Sync (Phase 5+)
-- Implement `HKObserverQuery` for automatic background updates
-- Add `HKAnchoredObjectQuery` for incremental sync
+### Incremental Sync (Phase 5+)
+- Add `HKAnchoredObjectQuery` for delta sync
 - Store sync anchors for efficient data retrieval
 - Notify user when significant health changes detected
 
