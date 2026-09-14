@@ -11,10 +11,8 @@ struct CareCompanionApp: App {
     @State private var state: AppState = {
         let repository = DemoCareRepository()
         #if targetEnvironment(simulator) || os(iOS)
-        // Enable HealthKit in production mode (not demo mode)
-        // For now, we keep it nil to maintain demo mode
-        // In production, this would be: HealthKitHealthDataProvider()
-        let healthProvider: (any HealthDataProvider)? = nil
+        // Enable HealthKit integration for real health data sync
+        let healthProvider: (any HealthDataProvider)? = HealthKitHealthDataProvider()
         #else
         let healthProvider: (any HealthDataProvider)? = nil
         #endif
