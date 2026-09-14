@@ -271,8 +271,9 @@ struct HealthPermissionsView: View {
                 try await healthProvider.requestPermission()
                 await checkPermissionStatus()
 
-                // If authorized, sync health data
+                // If authorized, set up automatic sync and perform initial sync
                 if permissionStatus == .authorized {
+                    await state.setupAutomaticHealthSync()
                     await state.syncHealthData()
                 }
             }

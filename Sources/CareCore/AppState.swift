@@ -234,4 +234,40 @@ import Observation
         }
         try await healthProvider.requestPermission()
     }
+
+    public func setupAutomaticHealthSync() async {
+        guard let healthProvider = healthProvider else { return }
+
+        // Start background sync (HKObserverQuery)
+        try? await healthProvider.startBackgroundSync()
+
+        // Listen for HealthKit data notifications
+        NotificationCenter.default.addObserver(
+            forName: .healthKitDataAvailable,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                await self?.syncHealthData()
+            }
+        }
+    }
+
+    public func teardownAutomaticHealthSync() async {
+        guard let healthProvider = healthProvider else { return }
+
+        // Remove notification observer
+        NotificationCenter.default.removeObserver(
+            self,
+            name: .healthKitDataAvailable,
+            object: nil
+        )
+
+        // Stop background sync
+        await healthProvider.stopBackgroundSync()
+    }
+}
+
+extension Notification.Name {
+    public static let healthKitDataAvailable = Notification.Name("com.carecompanion.healthkit.dataAvailable")
 }

@@ -2,11 +2,16 @@ import Foundation
 import HealthKit
 import CareCore
 
+extension Notification.Name {
+    static let healthKitDataAvailable = Notification.Name("com.carecompanion.healthkit.dataAvailable")
+}
+
 /// HealthKit implementation of HealthDataProvider
 @available(iOS 17.0, *)
 public final class HealthKitHealthDataProvider: HealthDataProvider {
     private let healthStore = HKHealthStore()
     private let calendar = Calendar.current
+    nonisolated(unsafe) private var observerQueries: [HKObserverQuery] = []
 
     // User defaults keys for storing anchors
     private let stepsAnchorKey = "com.carecompanion.healthkit.steps.anchor"
@@ -143,13 +148,57 @@ public final class HealthKitHealthDataProvider: HealthDataProvider {
     #endif
 
     public func startBackgroundSync() async throws {
-        // Background delivery is not implemented in this version
-        // Would require setting up HKObserverQuery for background updates
-        // For now, sync is triggered manually
+        guard HKHealthStore.isHealthDataAvailable() else {
+            throw CareServiceError.healthPermissionDenied
+        }
+
+        guard let stepType = HKObjectType.quantityType(forIdentifier: .stepCount),
+              let sleepType = HKObjectType.categoryType(forIdentifier: .sleepAnalysis),
+              let heartRateType = HKObjectType.quantityType(forIdentifier: .restingHeartRate) else {
+            throw CareServiceError.vendorUnavailable
+        }
+
+        let types = [stepType, sleepType, heartRateType]
+
+        // Enable background delivery for each type
+        for type in types {
+            try await healthStore.enableBackgroundDelivery(for: type, frequency: .hourly)
+
+            // Create observer query for this type
+            let query = HKObserverQuery(sampleType: type, predicate: nil) { _, completionHandler, error in
+                guard error == nil else {
+                    completionHandler()
+                    return
+                }
+
+                // Notify that new data is available
+                // The sync will be handled by AppState when notified
+                NotificationCenter.default.post(name: .healthKitDataAvailable, object: nil)
+                completionHandler()
+            }
+
+            healthStore.execute(query)
+            observerQueries.append(query)
+        }
     }
 
     public func stopBackgroundSync() async {
-        // No background sync to stop in current implementation
+        // Stop all observer queries
+        for query in observerQueries {
+            healthStore.stop(query)
+        }
+        observerQueries.removeAll()
+
+        // Disable background delivery
+        guard let stepType = HKObjectType.quantityType(forIdentifier: .stepCount),
+              let sleepType = HKObjectType.categoryType(forIdentifier: .sleepAnalysis),
+              let heartRateType = HKObjectType.quantityType(forIdentifier: .restingHeartRate) else {
+            return
+        }
+
+        for type in [stepType, sleepType, heartRateType] {
+            try? await healthStore.disableBackgroundDelivery(for: type)
+        }
     }
 
     // MARK: - Private Methods

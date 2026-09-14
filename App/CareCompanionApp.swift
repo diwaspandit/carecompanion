@@ -34,6 +34,7 @@ struct CareCompanionApp: App {
 
 private struct RootView: View {
     @Environment(AppState.self) private var state
+    @Environment(\.scenePhase) private var scenePhase
     @State private var showDemoMenu = false
     @State private var didApplyUITestReset = false
 
@@ -71,9 +72,23 @@ private struct RootView: View {
         .animation(.spring(response: 0.3, dampingFraction: 0.85), value: state.screen)
         .animation(.spring(response: 0.3, dampingFraction: 0.85), value: state.toastMessage)
         .onAppear {
-            guard CareRuntime.isUITesting, !didApplyUITestReset else { return }
-            didApplyUITestReset = true
-            Task { await state.resetDemo() }
+            if CareRuntime.isUITesting, !didApplyUITestReset {
+                didApplyUITestReset = true
+                Task { await state.resetDemo() }
+            }
+
+            // Set up automatic health sync on app launch
+            Task {
+                await state.setupAutomaticHealthSync()
+            }
+        }
+        .onChange(of: scenePhase) { oldPhase, newPhase in
+            // Sync health data when app becomes active
+            if newPhase == .active {
+                Task {
+                    await state.syncHealthData()
+                }
+            }
         }
     }
 }
