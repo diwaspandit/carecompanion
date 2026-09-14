@@ -172,9 +172,9 @@ import Supabase
         try await insert("check_ins", CheckInInsert(accountID: try account(for: seniorID), seniorID: seniorID, occurredAt: date))
     }
 
-    func recordMood(_ mood: Mood, seniorID: String, at date: Date) async throws {
+    func recordMood(_ mood: Mood, seniorID: String, at date: Date, note: String?) async throws {
         try await insert("mood_entries", MoodInsert(accountID: try account(for: seniorID), seniorID: seniorID,
-                                                    mood: mood.rawValue, occurredAt: date))
+                                                    mood: mood.rawValue, note: note, occurredAt: date))
     }
 
     func toggleMedication(id: String) async throws {
@@ -276,6 +276,22 @@ import Supabase
                                                         name: name, scheduledTime: scheduledTime))
     }
 
+    func updateMedication(id: String, name: String, scheduledTime: String) async throws {
+        try await perform {
+            try await client.from("medications")
+                .update(["name": name, "scheduled_time": scheduledTime])
+                .eq("id", value: id).execute()
+        }
+    }
+
+    func deleteMedication(id: String) async throws {
+        try await perform {
+            try await client.from("medications")
+                .update(["deleted_at": Date().formatted(.iso8601)])
+                .eq("id", value: id).execute()
+        }
+    }
+
     func updateSenior(_ senior: AccountSenior) async throws {
         try await perform {
             try await client.from("account_seniors")
@@ -335,9 +351,9 @@ private struct CheckInInsert: Encodable, Sendable {
 }
 
 private struct MoodInsert: Encodable, Sendable {
-    let accountID: String, seniorID: String, mood: String, occurredAt: Date
+    let accountID: String, seniorID: String, mood: String, note: String?, occurredAt: Date
     enum CodingKeys: String, CodingKey {
-        case mood, accountID = "account_id", seniorID = "senior_id", occurredAt = "occurred_at"
+        case mood, note, accountID = "account_id", seniorID = "senior_id", occurredAt = "occurred_at"
     }
 }
 

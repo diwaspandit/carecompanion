@@ -16,3 +16,4 @@ Config/Secrets.xcconfig
 # Swift Package Manager
 .build/
 .swiftpm/
+build/

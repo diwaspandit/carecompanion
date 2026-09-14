@@ -142,9 +142,12 @@ private final class FailingRefreshRepository: CareRepository {
     var snapshot: CareSnapshot { demo.snapshot }
     func refresh() async throws { throw CareServiceError.offline }
     func checkIn(seniorID: String, at date: Date) async throws {}
-    func recordMood(_ mood: Mood, seniorID: String, at date: Date) async throws {}
+    func recordMood(_ mood: Mood, seniorID: String, at date: Date, note: String?) async throws {}
     func toggleMedication(id: String) async throws {}
     func recordMedicationEvent(medicationID: String, taken: Bool, at date: Date) async throws {}
+    func addMedication(seniorID: String, name: String, scheduledTime: String) async throws {}
+    func updateMedication(id: String, name: String, scheduledTime: String) async throws {}
+    func deleteMedication(id: String) async throws {}
     func upsertHealthSnapshots(_ snapshots: [HealthSnapshot]) async throws {}
     func saveAppointment(_ appointment: Appointment) async throws {}
     func deleteAppointment(id: String) async throws {}
