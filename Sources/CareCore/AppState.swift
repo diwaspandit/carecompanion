@@ -184,10 +184,13 @@ import Observation
         healthSyncStatus.healthData = .syncing
 
         do {
-            // Fetch health snapshots for the last 7 days
+            // Real health data must be queried against the wall clock. `now()` is the
+            // frozen demo clock (DemoCareRepository.referenceDate), which would limit
+            // the HealthKit query to a fixed past week and never return current samples.
+            let syncDate = Date()
             let snapshots = try await healthProvider.snapshots(
                 seniorID: selectedSeniorID,
-                endingAt: now()
+                endingAt: syncDate
             )
 
             // Upsert health snapshots to repository
@@ -195,7 +198,7 @@ import Observation
             snapshot = repository.snapshot
 
             healthSyncStatus.healthData = .synced
-            healthSyncStatus.lastSyncDate = now()
+            healthSyncStatus.lastSyncDate = syncDate
             healthSyncStatus.lastError = nil
 
             showDemoToast("Health data synced successfully")

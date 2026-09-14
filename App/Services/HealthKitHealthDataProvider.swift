@@ -13,6 +13,14 @@ public final class HealthKitHealthDataProvider: HealthDataProvider {
     private let sleepAnchorKey = "com.carecompanion.healthkit.sleep.anchor"
     private let heartRateAnchorKey = "com.carecompanion.healthkit.heartrate.anchor"
 
+    // HealthKit deliberately does not expose real read-authorization status
+    // (authorizationStatus(for:) only reflects share/write permissions, and
+    // for read-only types it returns misleading values by design, for user
+    // privacy). We track locally whether the user has completed the system
+    // permission prompt instead, and let the read queries themselves reflect
+    // whatever was actually granted.
+    private let hasRequestedAccessKey = "com.carecompanion.healthkit.hasRequestedAccess"
+
     // Health data types we need to read
     private var readTypes: Set<HKObjectType> {
         guard let stepType = HKObjectType.quantityType(forIdentifier: .stepCount),
@@ -28,28 +36,18 @@ public final class HealthKitHealthDataProvider: HealthDataProvider {
     // MARK: - HealthDataProvider Protocol
 
     public func permissionStatus() async -> HealthPermissionStatus {
-        // HealthKit doesn't provide a way to check authorization status globally
-        // We check if HealthKit is available on the device
         guard HKHealthStore.isHealthDataAvailable() else {
             return .restricted
         }
 
-        // Check individual type authorization
-        guard let stepType = HKObjectType.quantityType(forIdentifier: .stepCount) else {
-            return .restricted
-        }
-
-        let status = healthStore.authorizationStatus(for: stepType)
-        switch status {
-        case .notDetermined:
-            return .notDetermined
-        case .sharingDenied:
-            return .denied
-        case .sharingAuthorized:
-            return .authorized
-        @unknown default:
-            return .notDetermined
-        }
+        // Do NOT use authorizationStatus(for:) here: it's only meaningful for
+        // share/write types. This provider only ever requests read access, and
+        // for read-only types the framework won't tell us whether the user
+        // actually granted or denied it (so apps can't infer sensitive health
+        // info from the grant/deny choice itself). Once the user has been
+        // through the system prompt, treat access as authorized and let the
+        // read queries reflect what was really granted.
+        return UserDefaults.standard.bool(forKey: hasRequestedAccessKey) ? .authorized : .notDetermined
     }
 
     public func requestPermission() async throws {
@@ -58,14 +56,17 @@ public final class HealthKitHealthDataProvider: HealthDataProvider {
         }
 
         try await healthStore.requestAuthorization(toShare: [], read: readTypes)
+        UserDefaults.standard.set(true, forKey: hasRequestedAccessKey)
     }
 
     public func snapshots(seniorID: String, endingAt date: Date) async throws -> [HealthSnapshot] {
-        // Check permission first
-        let status = await permissionStatus()
-        guard status == .authorized else {
+        guard HKHealthStore.isHealthDataAvailable() else {
             throw CareServiceError.healthPermissionDenied
         }
+
+        // No further permission check here: for read-only types, the only
+        // reliable signal of what's actually accessible is the query result
+        // itself (an outright denial simply comes back empty, not as an error).
 
         // Get data for the last 7 days
         let startDate = calendar.date(byAdding: .day, value: -6, to: date) ?? date
@@ -87,6 +88,59 @@ public final class HealthKitHealthDataProvider: HealthDataProvider {
             endDate: date
         )
     }
+
+    #if DEBUG
+    /// Debug-only: writes one day of sample steps, sleep, and resting heart rate into
+    /// Apple Health so the read/sync path can be verified on the Simulator, where the
+    /// Health app has no data and may not allow manual entry for every type.
+    /// Returns a line per data type describing what was saved or why it failed.
+    public func seedSampleData() async -> [String] {
+        guard HKHealthStore.isHealthDataAvailable(),
+              let stepType = HKQuantityType.quantityType(forIdentifier: .stepCount),
+              let sleepType = HKCategoryType.categoryType(forIdentifier: .sleepAnalysis),
+              let heartRateType = HKQuantityType.quantityType(forIdentifier: .restingHeartRate) else {
+            return ["HealthKit is not available on this device."]
+        }
+
+        do {
+            try await healthStore.requestAuthorization(toShare: [stepType, sleepType, heartRateType], read: readTypes)
+            UserDefaults.standard.set(true, forKey: hasRequestedAccessKey)
+        } catch {
+            return ["Write permission request failed: \(error.localizedDescription)"]
+        }
+
+        // Keep every sample on today's date so they land in the same daily snapshot.
+        let now = Date()
+        let dayStart = calendar.startOfDay(for: now)
+        let latestEnd = now.addingTimeInterval(-60)
+        let sleepStart = min(dayStart.addingTimeInterval(30 * 60), latestEnd.addingTimeInterval(-60))
+        let sleepEnd = min(dayStart.addingTimeInterval(6 * 3600 + 45 * 60), latestEnd)
+        let stepsStart = max(dayStart, latestEnd.addingTimeInterval(-3600))
+
+        let samples: [(String, HKSample)] = [
+            ("Steps (6,789)", HKQuantitySample(type: stepType,
+                                                quantity: HKQuantity(unit: .count(), doubleValue: 6789),
+                                                start: stepsStart, end: latestEnd)),
+            ("Sleep (00:30–06:45, asleep)", HKCategorySample(type: sleepType,
+                                                              value: HKCategoryValueSleepAnalysis.asleepCore.rawValue,
+                                                              start: sleepStart, end: sleepEnd)),
+            ("Resting heart rate (63 bpm)", HKQuantitySample(type: heartRateType,
+                                                              quantity: HKQuantity(unit: .count().unitDivided(by: .minute()), doubleValue: 63),
+                                                              start: latestEnd, end: latestEnd))
+        ]
+
+        var results: [String] = []
+        for (label, sample) in samples {
+            do {
+                try await healthStore.save(sample)
+                results.append("Saved \(label)")
+            } catch {
+                results.append("Failed \(label): \(error.localizedDescription)")
+            }
+        }
+        return results
+    }
+    #endif
 
     public func startBackgroundSync() async throws {
         // Background delivery is not implemented in this version

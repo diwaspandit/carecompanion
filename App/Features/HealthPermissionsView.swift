@@ -7,6 +7,7 @@ struct HealthPermissionsView: View {
     @State private var permissionStatus: HealthPermissionStatus = .notDetermined
     @State private var isRequesting = false
     @State private var errorMessage: String?
+    @State private var seedResults: [String] = []
 
     var body: some View {
         NavigationStack {
@@ -117,6 +118,10 @@ struct HealthPermissionsView: View {
                         .disabled(isRequesting)
                     }
 
+                    if permissionStatus == .authorized {
+                        syncVerificationSection
+                    }
+
                     Spacer(minLength: 40)
                 }
                 .padding(.horizontal, 20)
@@ -132,6 +137,81 @@ struct HealthPermissionsView: View {
         }
         .task {
             await checkPermissionStatus()
+        }
+    }
+
+    private var healthKitRecords: [HealthSnapshot] {
+        state.snapshot.health.filter { $0.seniorID == state.selectedSeniorID && $0.source == "healthkit" }
+    }
+
+    private var syncVerificationSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Sync Verification")
+                .font(.system(size: 17, weight: .semibold))
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Senior: \(state.selectedSenior?.name ?? "—") (\(state.selectedSeniorID))")
+                Text("Sync state: \(state.healthSyncStatus.healthData.rawValue)")
+                if let date = state.healthSyncStatus.lastSyncDate {
+                    Text("Last sync: \(date.formatted(date: .abbreviated, time: .standard))")
+                }
+                if let error = state.healthSyncStatus.lastError {
+                    Text("Last error: \(error)").foregroundStyle(.red)
+                }
+                Text("Apple Health days synced: \(healthKitRecords.count)")
+                if let latest = healthKitRecords.first {
+                    Text("Latest (\(latest.date.formatted(date: .abbreviated, time: .omitted))): \(latest.steps) steps · \(latest.sleepMinutes) min sleep · \(latest.restingHeartRate) bpm")
+                } else {
+                    Text("No Apple Health samples found yet — dashboard is showing demo data.")
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .font(.system(size: 13, design: .monospaced))
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(.gray.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
+            .accessibilityIdentifier("health.syncVerification")
+
+            Button {
+                Task { await state.syncHealthData() }
+            } label: {
+                Text(state.healthSyncStatus.healthData == .syncing ? "Syncing…" : "Sync Now")
+                    .font(.system(size: 17, weight: .semibold))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                    .background(.blue, in: RoundedRectangle(cornerRadius: 12))
+                    .foregroundStyle(.white)
+            }
+            .disabled(state.healthSyncStatus.healthData == .syncing)
+            .accessibilityIdentifier("health.syncNow")
+
+            #if DEBUG
+            if let healthKit = state.healthProvider as? HealthKitHealthDataProvider {
+                Button {
+                    Task {
+                        seedResults = await healthKit.seedSampleData()
+                        await state.syncHealthData()
+                    }
+                } label: {
+                    Text("Add Sample Health Data (Debug)")
+                        .font(.system(size: 15, weight: .semibold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .background(.orange.opacity(0.15), in: RoundedRectangle(cornerRadius: 12))
+                        .foregroundStyle(.orange)
+                }
+                .accessibilityIdentifier("health.seedSampleData")
+
+                if !seedResults.isEmpty {
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(seedResults, id: \.self) { line in
+                            Text(line).foregroundStyle(line.hasPrefix("Saved") ? Color.primary : Color.red)
+                        }
+                    }
+                    .font(.system(size: 12, design: .monospaced))
+                }
+            }
+            #endif
         }
     }
 

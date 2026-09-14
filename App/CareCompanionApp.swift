@@ -853,6 +853,23 @@ private struct AIInsightReferenceCard: View {
 private struct SeniorReferenceCard: View {
     @Environment(AppState.self) private var state
 
+    private var stepsDisplay: String {
+        guard let health = state.latestHealth else { return "2,840" }
+        return health.steps.formatted()
+    }
+    private var sleepDisplay: String {
+        guard let health = state.latestHealth else { return "6h 20min" }
+        return Self.sleepText(minutes: health.sleepMinutes)
+    }
+    private var dataSourceNotice: String {
+        state.latestHealth?.source == "healthkit"
+            ? "Steps and sleep synced from Apple Health."
+            : "Steps and sleep are demo data for this preview, not synced from HealthKit."
+    }
+    private static func sleepText(minutes: Int) -> String {
+        "\(minutes / 60)h \(minutes % 60)min"
+    }
+
     var body: some View {
         LovableCard {
             VStack(spacing: 16) {
@@ -881,10 +898,10 @@ private struct SeniorReferenceCard: View {
                 LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
                     SmallMetric(title: "Medications", value: "\(state.medicationsTakenCount) of 4 taken", icon: "capsule", color: CareTheme.gold, identifier: "family.medications")
                     SmallMetric(title: "Mood today", value: state.currentMood?.rawValue ?? "Okay", icon: "waveform.path.ecg", color: CareTheme.sage)
-                    SmallMetric(title: "Steps", value: "2,840", icon: "shoeprints.fill", color: CareTheme.blue, identifier: "family.steps")
-                    SmallMetric(title: "Sleep", value: "6h 20min", icon: "moon", color: CareTheme.blue, identifier: "family.sleep")
+                    SmallMetric(title: "Steps", value: stepsDisplay, icon: "shoeprints.fill", color: CareTheme.blue, identifier: "family.steps")
+                    SmallMetric(title: "Sleep", value: sleepDisplay, icon: "moon", color: CareTheme.blue, identifier: "family.sleep")
                 }
-                Text("Steps and sleep are demo data for this preview, not synced from HealthKit.")
+                Text(dataSourceNotice)
                     .font(.system(size: 11))
                     .foregroundStyle(CareTheme.mutedText)
                     .accessibilityIdentifier("family.demoDataNotice")
@@ -1326,18 +1343,26 @@ private struct AlertRow: View {
 }
 
 private struct HealthTimelineView: View {
+    @Environment(AppState.self) private var state
+
+    private var dataSourceNotice: String {
+        state.latestHealth?.source == "healthkit"
+            ? "Synced from Apple Health."
+            : "Demo data for this preview, not synced from HealthKit."
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             Text("Health Timeline").font(.system(size: 28, weight: .black))
             Text("Maya Sharma · last 7 days").font(.system(size: 15)).foregroundStyle(CareTheme.secondaryText)
-            Text("Demo data for this preview, not synced from HealthKit.")
+            Text(dataSourceNotice)
                 .font(.system(size: 12))
                 .foregroundStyle(CareTheme.mutedText)
                 .accessibilityIdentifier("timeline.demoDataNotice")
             AIInsightReferenceCard()
-            SleepChartCard()
-            StepsChartCard()
-            HeartChartCard()
+            SleepChartCard(latestHealth: state.latestHealth)
+            StepsChartCard(latestHealth: state.latestHealth)
+            HeartChartCard(latestHealth: state.latestHealth)
             AdherenceCard()
             MoodTrendCard()
         }
@@ -1345,7 +1370,13 @@ private struct HealthTimelineView: View {
 }
 
 private struct SleepChartCard: View {
+    let latestHealth: HealthSnapshot?
     let values: [CGFloat] = [7.4, 7.1, 6.8, 7.2, 6.1, 5.9, 6.3]
+
+    private var sleepDisplay: String {
+        guard let health = latestHealth else { return "6h 20min" }
+        return "\(health.sleepMinutes / 60)h \(health.sleepMinutes % 60)min"
+    }
 
     var body: some View {
         LovableCard {
@@ -1353,7 +1384,7 @@ private struct SleepChartCard: View {
                 HStack {
                     Label("Sleep", systemImage: "moon").font(.system(size: 16, weight: .black)).foregroundStyle(CareTheme.secondaryText)
                     Spacer()
-                    Text("6h 20min last night").font(.system(size: 15, weight: .black))
+                    Text("\(sleepDisplay) last night").font(.system(size: 15, weight: .black))
                 }
                 HStack(alignment: .bottom, spacing: 10) {
                     ForEach(Array(values.enumerated()), id: \.offset) { _, value in
@@ -1375,13 +1406,20 @@ private struct SleepChartCard: View {
 }
 
 private struct StepsChartCard: View {
+    let latestHealth: HealthSnapshot?
+
+    private var stepsDisplay: String {
+        guard let health = latestHealth else { return "2,840" }
+        return health.steps.formatted()
+    }
+
     var body: some View {
         LovableCard {
             VStack(alignment: .leading, spacing: 14) {
                 HStack {
                     Label("Steps", systemImage: "shoeprints.fill").font(.system(size: 16, weight: .black)).foregroundStyle(CareTheme.secondaryText)
                     Spacer()
-                    Text("2,840 today").font(.system(size: 15, weight: .black))
+                    Text("\(stepsDisplay) today").font(.system(size: 15, weight: .black))
                 }
                 MiniLineChart(color: CareTheme.sage)
                     .frame(height: 140)
@@ -1391,13 +1429,20 @@ private struct StepsChartCard: View {
 }
 
 private struct HeartChartCard: View {
+    let latestHealth: HealthSnapshot?
+
+    private var heartRateDisplay: String {
+        guard let health = latestHealth else { return "72 bpm" }
+        return "\(health.restingHeartRate) bpm"
+    }
+
     var body: some View {
         LovableCard {
             VStack(alignment: .leading, spacing: 14) {
                 HStack {
                     Label("Resting heart rate", systemImage: "heart").font(.system(size: 16, weight: .black)).foregroundStyle(CareTheme.secondaryText)
                     Spacer()
-                    Text("72 bpm").font(.system(size: 15, weight: .black))
+                    Text(heartRateDisplay).font(.system(size: 15, weight: .black))
                 }
                 MiniLineChart(color: CareTheme.coral)
                     .frame(height: 140)
