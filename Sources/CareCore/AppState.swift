@@ -60,31 +60,55 @@ import Observation
         screen = .familyDashboard
         familyTab = hasEmergency ? .emergency : tab
     }
-    public func checkIn() {
-        repository.checkIn(seniorID: selectedSeniorID, at: now())
-        snapshot = repository.snapshot
-        seniorTab = .mood
-        showDemoToast("Maya's check-in is now visible to Diwas.")
+    public func checkIn() async {
+        do {
+            try await repository.checkIn(seniorID: selectedSeniorID, at: now())
+            snapshot = repository.snapshot
+            seniorTab = .mood
+            showDemoToast("Maya's check-in is now visible to Diwas.")
+        } catch {
+            showDemoToast("Check-in failed: \(error.localizedDescription)")
+        }
     }
-    public func recordMood(_ mood: Mood) {
-        repository.recordMood(mood, seniorID: selectedSeniorID, at: now())
-        snapshot = repository.snapshot
-        showDemoToast("Mood recorded for today's care context.")
+
+    public func recordMood(_ mood: Mood) async {
+        do {
+            try await repository.recordMood(mood, seniorID: selectedSeniorID, at: now())
+            snapshot = repository.snapshot
+            showDemoToast("Mood recorded for today's care context.")
+        } catch {
+            showDemoToast("Failed to record mood: \(error.localizedDescription)")
+        }
     }
-    public func toggleMedication(id: String) {
-        repository.toggleMedication(id: id)
-        snapshot = repository.snapshot
+
+    public func toggleMedication(id: String) async {
+        do {
+            try await repository.toggleMedication(id: id)
+            snapshot = repository.snapshot
+        } catch {
+            showDemoToast("Failed to update medication: \(error.localizedDescription)")
+        }
     }
-    public func triggerSOS() {
-        repository.triggerSOS(seniorID: selectedSeniorID, at: now())
-        snapshot = repository.snapshot
-        familyTab = .emergency
-        showDemoToast("SOS alert is active for the family dashboard.")
+
+    public func triggerSOS() async {
+        do {
+            try await repository.triggerSOS(seniorID: selectedSeniorID, at: now())
+            snapshot = repository.snapshot
+            familyTab = .emergency
+            showDemoToast("SOS alert is active for the family dashboard.")
+        } catch {
+            showDemoToast("Failed to trigger SOS: \(error.localizedDescription)")
+        }
     }
-    public func acknowledgeEmergency() {
-        repository.acknowledgeAlerts(seniorID: selectedSeniorID)
-        snapshot = repository.snapshot
-        familyTab = .dashboard
+
+    public func acknowledgeEmergency() async {
+        do {
+            try await repository.acknowledgeAlerts(seniorID: selectedSeniorID)
+            snapshot = repository.snapshot
+            familyTab = .dashboard
+        } catch {
+            showDemoToast("Failed to acknowledge emergency: \(error.localizedDescription)")
+        }
     }
     public func showPaywall(for context: PaywallContext) {
         paywallContext = context
@@ -118,8 +142,8 @@ import Observation
     public func clearToast() {
         toastMessage = nil
     }
-    public func resetDemo() {
-        repository.reset()
+    public func resetDemo() async {
+        await repository.reset()
         snapshot = repository.snapshot
         selectedSeniorID = snapshot.seniors.first?.id ?? ""
         role = nil

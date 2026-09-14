@@ -14,71 +14,90 @@ final class CareCoreTests: XCTestCase {
         }
     }
     func testCheckInIsIdempotentAndSharedAcrossRoles() async {
+        let state = await MainActor.run { AppState(repository: DemoCareRepository()) }
+        await MainActor.run { state.role = .senior }
+        await state.checkIn()
+        await state.checkIn()
         await MainActor.run {
-            let state = AppState(repository: DemoCareRepository())
-            state.role = .senior
-            state.checkIn()
-            state.checkIn()
             state.role = .family
             XCTAssertEqual(state.snapshot.checkIns.count, 1)
             XCTAssertTrue(state.isCheckedIn)
         }
     }
     func testCheckInAdvancesSeniorDemoToMoodPrompt() async {
+        let state = await MainActor.run { AppState(repository: DemoCareRepository()) }
+        await MainActor.run { state.switchToSenior() }
+        await state.checkIn()
         await MainActor.run {
-            let state = AppState(repository: DemoCareRepository())
-            state.switchToSenior()
-            state.checkIn()
             XCTAssertEqual(state.seniorTab, .mood)
         }
     }
     func testMoodRecordsLatestChoice() async {
+        let state = await MainActor.run { AppState(repository: DemoCareRepository()) }
+        await state.recordMood(.great)
+        await state.recordMood(.low)
         await MainActor.run {
-            let state = AppState(repository: DemoCareRepository())
-            state.recordMood(.great)
-            state.recordMood(.low)
             XCTAssertEqual(state.currentMood, .low)
             XCTAssertEqual(state.snapshot.moods.count, 1)
         }
     }
     func testUnknownSeniorCannotMutateRepository() async {
+        let repository = await MainActor.run { DemoCareRepository() }
+        let seed = await MainActor.run { repository.snapshot }
+        do {
+            try await repository.checkIn(seniorID: "unknown", at: DemoCareRepository.referenceDate)
+            XCTFail("Should have thrown error")
+        } catch {}
+        do {
+            try await repository.recordMood(.low, seniorID: "unknown", at: DemoCareRepository.referenceDate)
+            XCTFail("Should have thrown error")
+        } catch {}
+        do {
+            try await repository.triggerSOS(seniorID: "unknown", at: DemoCareRepository.referenceDate)
+            XCTFail("Should have thrown error")
+        } catch {}
         await MainActor.run {
-            let repository = DemoCareRepository()
-            let seed = repository.snapshot
-            repository.checkIn(seniorID: "unknown", at: DemoCareRepository.referenceDate)
-            repository.recordMood(.low, seniorID: "unknown", at: DemoCareRepository.referenceDate)
-            repository.triggerSOS(seniorID: "unknown", at: DemoCareRepository.referenceDate)
             XCTAssertEqual(repository.snapshot, seed)
         }
     }
     func testSOSIsIdempotentAndCanBeAcknowledged() async {
+        let state = await MainActor.run { AppState(repository: DemoCareRepository()) }
+        await state.triggerSOS()
+        await state.triggerSOS()
         await MainActor.run {
-            let state = AppState(repository: DemoCareRepository())
-            state.triggerSOS()
-            state.triggerSOS()
             XCTAssertEqual(state.snapshot.alerts.count, 1)
             XCTAssertTrue(state.hasEmergency)
-            state.acknowledgeEmergency()
+        }
+        await state.acknowledgeEmergency()
+        await MainActor.run {
             XCTAssertFalse(state.hasEmergency)
         }
     }
     func testEmergencyAcknowledgeClearsAlertBadge() async {
+        let state = await MainActor.run { AppState(repository: DemoCareRepository()) }
         await MainActor.run {
-            let state = AppState(repository: DemoCareRepository())
             XCTAssertEqual(state.activeDemoAlertCount, 3)
-            state.triggerSOS()
+        }
+        await state.triggerSOS()
+        await MainActor.run {
             XCTAssertEqual(state.activeDemoAlertCount, 4)
-            state.acknowledgeEmergency()
+        }
+        await state.acknowledgeEmergency()
+        await MainActor.run {
             XCTAssertEqual(state.activeDemoAlertCount, 3)
         }
     }
     func testMedicationToggleUpdatesSnapshot() async {
+        let state = await MainActor.run { AppState(repository: DemoCareRepository()) }
         await MainActor.run {
-            let state = AppState(repository: DemoCareRepository())
             XCTAssertEqual(state.medicationsTakenCount, 3)
-            state.toggleMedication(id: "med-3")
+        }
+        await state.toggleMedication(id: "med-3")
+        await MainActor.run {
             XCTAssertEqual(state.medicationsTakenCount, 4)
-            state.toggleMedication(id: "missing")
+        }
+        await state.toggleMedication(id: "missing")
+        await MainActor.run {
             XCTAssertEqual(state.medicationsTakenCount, 4)
         }
     }
@@ -94,15 +113,17 @@ final class CareCoreTests: XCTestCase {
         }
     }
     func testResetClearsCareStateButPreservesSubscription() async {
+        let state = await MainActor.run { AppState(repository: DemoCareRepository()) }
+        let seed = await MainActor.run { state.snapshot }
         await MainActor.run {
-            let state = AppState(repository: DemoCareRepository())
-            let seed = state.snapshot
             state.subscription = SubscriptionAccess(activeEntitlements: ["plus_plan", "premium_insights"])
-            state.checkIn()
-            state.recordMood(.great)
-            state.triggerSOS()
-            state.role = .family
-            DemoScenarioController(state: state).reset()
+        }
+        await state.checkIn()
+        await state.recordMood(.great)
+        await state.triggerSOS()
+        await MainActor.run { state.role = .family }
+        await DemoScenarioController(state: state).reset()
+        await MainActor.run {
             XCTAssertEqual(state.snapshot, seed)
             XCTAssertNil(state.role)
             XCTAssertEqual(state.screen, .onboarding)
@@ -110,28 +131,28 @@ final class CareCoreTests: XCTestCase {
         }
     }
     func testPremiumScenarioDoesNotForgePurchase() async {
+        let state = await MainActor.run { AppState(repository: DemoCareRepository()) }
+        await DemoScenarioController(state: state).apply(.premiumUnlocked)
         await MainActor.run {
-            let state = AppState(repository: DemoCareRepository())
-            DemoScenarioController(state: state).apply(.premiumUnlocked)
             XCTAssertTrue(state.isPremiumPreview)
             XCTAssertFalse(state.subscription.canUsePremiumAI)
         }
     }
     func testScenariosRepeatExactly() async {
-        await MainActor.run {
-            let state = AppState(repository: DemoCareRepository())
-            let controller = DemoScenarioController(state: state)
-            for scenario in DemoScenario.allCases {
-                controller.apply(scenario)
-                let first = state.snapshot
-                controller.apply(scenario)
+        let state = await MainActor.run { AppState(repository: DemoCareRepository()) }
+        let controller = await MainActor.run { DemoScenarioController(state: state) }
+        for scenario in DemoScenario.allCases {
+            await controller.apply(scenario)
+            let first = await MainActor.run { state.snapshot }
+            await controller.apply(scenario)
+            await MainActor.run {
                 XCTAssertEqual(first, state.snapshot)
             }
         }
     }
     func testHealthHistoryIsSevenDaysAndExplicitlyDemo() {
         let date = Date(timeIntervalSince1970: 0)
-        let history = DemoHealthDataProvider().snapshots(seniorID: "maya", endingAt: date)
+        let history = DemoHealthDataProvider().snapshotsSync(seniorID: "maya", endingAt: date)
         XCTAssertEqual(history.count, 7)
         XCTAssertEqual(Set(history.map(\.id)).count, 7)
         XCTAssertTrue(history.allSatisfy { $0.source == "Demo data" && $0.seniorID == "maya" })
@@ -148,12 +169,14 @@ final class CareCoreTests: XCTestCase {
         XCTAssertFalse(plus.canAddSenior(currentCount: 5))
     }
     func testResetClearsPreviewFlags() async {
+        let state = await MainActor.run { AppState(repository: DemoCareRepository()) }
+        let controller = await MainActor.run { DemoScenarioController(state: state) }
+        await controller.apply(.appointmentPrepared)
         await MainActor.run {
-            let state = AppState(repository: DemoCareRepository())
-            let controller = DemoScenarioController(state: state)
-            controller.apply(.appointmentPrepared)
             XCTAssertTrue(state.isAppointmentPreparedPreview)
-            controller.reset()
+        }
+        await controller.reset()
+        await MainActor.run {
             XCTAssertFalse(state.isAppointmentPreparedPreview)
             XCTAssertFalse(state.isPremiumPreview)
         }
@@ -202,5 +225,170 @@ final class CareCoreTests: XCTestCase {
         XCTAssertFalse(combined.contains("disease probability"))
         XCTAssertTrue(combined.contains("does not diagnose"))
         XCTAssertTrue(combined.contains("does not diagnose, prescribe"))
+    }
+
+    // MARK: - Phase 1 Service Boundary Tests
+
+    func testServiceErrorTypes() {
+        let offline = CareServiceError.offline
+        let unauthorized = CareServiceError.unauthorized
+        let premiumRequired = CareServiceError.premiumRequired
+        let healthPermissionDenied = CareServiceError.healthPermissionDenied
+        let vendorUnavailable = CareServiceError.vendorUnavailable
+        let invalidState = CareServiceError.invalidState("test")
+
+        XCTAssertNotNil(offline.errorDescription)
+        XCTAssertNotNil(unauthorized.errorDescription)
+        XCTAssertNotNil(premiumRequired.errorDescription)
+        XCTAssertNotNil(healthPermissionDenied.errorDescription)
+        XCTAssertNotNil(vendorUnavailable.errorDescription)
+        XCTAssertNotNil(invalidState.errorDescription)
+    }
+
+    func testDemoSubscriptionServiceReturnsCurrentAccess() async {
+        let service = await MainActor.run {
+            DemoSubscriptionService(access: SubscriptionAccess(activeEntitlements: ["plus_plan"]))
+        }
+        let access = try? await service.refreshAccess()
+        await MainActor.run {
+            XCTAssertEqual(access?.activeEntitlements, ["plus_plan"])
+            XCTAssertEqual(service.currentAccess.seniorLimit, 5)
+        }
+    }
+
+    func testDemoSubscriptionServiceRestorePurchases() async {
+        let service = await MainActor.run { DemoSubscriptionService() }
+        let access = try? await service.restorePurchases()
+        await MainActor.run {
+            XCTAssertNotNil(access)
+            XCTAssertEqual(access?.seniorLimit, 1)
+        }
+    }
+
+    func testPlanServiceEnforcesSeniorLimits() {
+        let planService = DefaultPlanService()
+        let freeAccess = SubscriptionAccess()
+        let plusAccess = SubscriptionAccess(activeEntitlements: ["plus_plan"])
+        let proAccess = SubscriptionAccess(activeEntitlements: ["pro_plan"])
+
+        XCTAssertTrue(planService.canAddSenior(currentCount: 0, subscription: freeAccess))
+        XCTAssertFalse(planService.canAddSenior(currentCount: 1, subscription: freeAccess))
+
+        XCTAssertTrue(planService.canAddSenior(currentCount: 4, subscription: plusAccess))
+        XCTAssertFalse(planService.canAddSenior(currentCount: 5, subscription: plusAccess))
+
+        XCTAssertTrue(planService.canAddSenior(currentCount: 24, subscription: proAccess))
+        XCTAssertFalse(planService.canAddSenior(currentCount: 25, subscription: proAccess))
+    }
+
+    func testPlanServicePremiumAIAccess() {
+        let planService = DefaultPlanService()
+        let freeAccess = SubscriptionAccess()
+        let plusAccess = SubscriptionAccess(activeEntitlements: ["plus_plan"])
+        let insightsOnly = SubscriptionAccess(activeEntitlements: ["premium_insights"])
+
+        XCTAssertFalse(planService.canUsePremiumAI(subscription: freeAccess))
+        XCTAssertTrue(planService.canUsePremiumAI(subscription: plusAccess))
+        XCTAssertTrue(planService.canUsePremiumAI(subscription: insightsOnly))
+    }
+
+    func testPlanServiceCoreCareAlwaysFree() {
+        let planService = DefaultPlanService()
+        XCTAssertTrue(planService.canUseCoreCare())
+    }
+
+    func testSyncStatusTracking() {
+        var status = SyncStatus()
+        XCTAssertFalse(status.isAnySyncing)
+        XCTAssertFalse(status.hasAnyFailed)
+        XCTAssertTrue(status.allSynced)
+
+        status.careData = .syncing
+        XCTAssertTrue(status.isAnySyncing)
+        XCTAssertFalse(status.allSynced)
+
+        status.careData = .failed
+        status.lastError = "Test error"
+        XCTAssertTrue(status.hasAnyFailed)
+        XCTAssertEqual(status.lastError, "Test error")
+    }
+
+    func testHealthDataProviderPermissionStatus() async {
+        let provider = DemoHealthDataProvider()
+        let status = await provider.permissionStatus()
+        XCTAssertEqual(status, .authorized)
+    }
+
+    func testHealthDataProviderSnapshots() async throws {
+        let provider = DemoHealthDataProvider()
+        let date = Date()
+        let snapshots = try await provider.snapshots(seniorID: "test-senior", endingAt: date)
+
+        XCTAssertEqual(snapshots.count, 7)
+        XCTAssertTrue(snapshots.allSatisfy { $0.source == "Demo data" })
+        XCTAssertTrue(snapshots.allSatisfy { $0.seniorID == "test-senior" })
+    }
+
+    func testRepositoryErrorsOnInvalidSenior() async {
+        let repository = await MainActor.run { DemoCareRepository() }
+
+        do {
+            try await repository.checkIn(seniorID: "invalid", at: Date())
+            XCTFail("Should have thrown error")
+        } catch let error as CareServiceError {
+            if case .invalidState(let message) = error {
+                XCTAssertTrue(message.contains("Senior not found"))
+            } else {
+                XCTFail("Wrong error type")
+            }
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+    }
+
+    func testRepositoryHealthSnapshotUpsert() async throws {
+        let repository = await MainActor.run { DemoCareRepository() }
+        let seniorID = DemoCareRepository.mayaID
+
+        let newSnapshot = HealthSnapshot(
+            id: "test-health",
+            seniorID: seniorID,
+            date: Date(),
+            steps: 5000,
+            sleepMinutes: 450,
+            restingHeartRate: 68,
+            source: "test"
+        )
+
+        try await repository.upsertHealthSnapshots([newSnapshot])
+
+        await MainActor.run {
+            XCTAssertTrue(repository.snapshot.health.contains { $0.id == "test-health" })
+        }
+    }
+
+    func testRepositoryAppointmentOperations() async throws {
+        let repository = await MainActor.run { DemoCareRepository() }
+        let seniorID = DemoCareRepository.mayaID
+
+        let appointment = Appointment(
+            id: "test-appt",
+            seniorID: seniorID,
+            title: "Test Visit",
+            clinician: "Dr. Test",
+            date: Date(),
+            location: "Test Clinic",
+            notes: "Test notes"
+        )
+
+        try await repository.saveAppointment(appointment)
+        await MainActor.run {
+            XCTAssertTrue(repository.snapshot.appointments.contains { $0.id == "test-appt" })
+        }
+
+        try await repository.deleteAppointment(id: "test-appt")
+        await MainActor.run {
+            XCTAssertFalse(repository.snapshot.appointments.contains { $0.id == "test-appt" })
+        }
     }
 }

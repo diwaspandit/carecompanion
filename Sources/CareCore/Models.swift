@@ -76,20 +76,3 @@ public struct CareSnapshot: Equatable, Codable, Sendable {
     public var appointments: [Appointment]
     public var alerts: [CareAlert]
 }
-
-public protocol HealthDataProvider: Sendable {
-    func snapshots(seniorID: String, endingAt date: Date) -> [HealthSnapshot]
-}
-public struct DemoHealthDataProvider: HealthDataProvider {
-    public init() {}
-    public func snapshots(seniorID: String, endingAt date: Date) -> [HealthSnapshot] {
-        let steps = [2840, 3120, 2680, 3400, 2950, 3200, 3050]
-        let sleep = [380, 410, 395, 420, 405, 390, 415]
-        return (0..<7).map { day in
-            HealthSnapshot(id: "health-\(seniorID)-\(day)", seniorID: seniorID,
-                           date: date.addingTimeInterval(Double(-day) * 86400),
-                           steps: steps[day], sleepMinutes: sleep[day],
-                           restingHeartRate: [72, 71, 73, 70, 72, 71, 72][day], source: "Demo data")
-        }
-    }
-}

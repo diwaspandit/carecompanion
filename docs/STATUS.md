@@ -1,6 +1,68 @@
 # CareCompanion status
 
-Updated: 2026-09-14. Claude/Lovable reference UI plus functional demo click-through implemented on branch Dwmi01; iOS build and simulator launch verified.
+Updated: 2026-09-14. Phase 1 production architecture hardening complete on branch `phase-1`.
+
+## 2026-09-14 Phase 1: Production Architecture Hardening (branch `phase-1`)
+
+**Goal:** Prepare codebase for real services without letting views know about vendor SDKs.
+
+**Completed:**
+- ✅ Created typed service error system (`CareServiceErrors.swift`) with offline, unauthorized, premiumRequired, healthPermissionDenied, vendorUnavailable, and invalidState errors
+- ✅ Created `SyncStatus.swift` for tracking synchronization state across services
+- ✅ Created `SubscriptionService.swift` protocol with `DemoSubscriptionService` implementation
+- ✅ Created `PlanService.swift` protocol with `DefaultPlanService` for access policy evaluation
+- ✅ Created enhanced `HealthDataProvider.swift` with async methods and permission status
+- ✅ Enhanced `CareRepository` protocol with explicit async methods for all operations:
+  - Check-ins, mood entries, medication events
+  - Health snapshot upserts
+  - Appointment save/delete operations
+  - SOS and alert acknowledgement
+  - Care insight and appointment prep storage
+  - Senior add/update operations
+  - Demo reset functionality
+- ✅ Updated `DemoCareRepository` to implement all new protocol methods with proper error handling
+- ✅ Updated `AppState` to use async repository methods with try/catch error handling
+- ✅ Updated `DemoScenarioController` to use async methods
+- ✅ Updated all app UI code to properly await async state methods using `Task { }`
+- ✅ Added 12 new tests covering service boundaries, errors, and protocols (31 total tests)
+- ✅ All tests pass: `swift test` — 31 XCTest cases, 0 failures
+- ✅ iOS build succeeds: `xcodebuild ... ONLY_ACTIVE_ARCH=YES build` — BUILD SUCCEEDED
+
+**Exit Criteria Met:**
+- ✅ Views depend on AppState/view models and protocols, not Supabase, RevenueCat, HealthKit or AI vendors
+- ✅ Demo mode behavior unchanged - deterministic and synchronous implementations preserved
+- ✅ Tests cover premium denial, offline fallback, reset, service errors, and all boundaries
+
+**Files Modified:**
+- Created: `Sources/CareCore/CareServiceErrors.swift`
+- Created: `Sources/CareCore/SyncStatus.swift`
+- Created: `Sources/CareCore/SubscriptionService.swift`
+- Created: `Sources/CareCore/PlanService.swift`
+- Created: `Sources/CareCore/HealthDataProvider.swift`
+- Modified: `Sources/CareCore/DemoCareRepository.swift` (enhanced protocol and implementation)
+- Modified: `Sources/CareCore/AppState.swift` (async methods)
+- Modified: `Sources/CareCore/DemoScenarioController.swift` (async methods)
+- Modified: `Sources/CareCore/AccessPolicy.swift` (uses PlanService)
+- Modified: `Sources/CareCore/Models.swift` (removed old HealthDataProvider)
+- Modified: `App/CareCompanionApp.swift` (async state calls)
+- Modified: `Tests/CareCoreTests/CareCoreTests.swift` (async tests + new service tests)
+
+**Verification:**
+```sh
+# Run tests
+swift test
+# Result: 31 tests, 0 failures
+
+# Build iOS app
+xcodebuild -project CareCompanion.xcodeproj -scheme CareCompanion \
+  -destination 'platform=iOS Simulator,name=iPhone 17' \
+  ONLY_ACTIVE_ARCH=YES build
+# Result: BUILD SUCCEEDED
+```
+
+**Next Phase:** Phase 2 - Database and Account Information Flow (Supabase integration)
+
+---
 
 ## 2026-09-14 Phase 0 stabilization checkpoint (branch `phase-0-stabilize-demo`)
 
