@@ -214,8 +214,8 @@ public final class HealthKitHealthDataProvider: HealthDataProvider {
 
                 // Aggregate sleep duration per day
                 for sample in sleepSamples {
-                    // Only count in-bed asleep time
-                    if sample.value == HKCategoryValueSleepAnalysis.asleep.rawValue ||
+                    // Only count in-bed asleep time (asleepUnspecified replaces deprecated .asleep)
+                    if sample.value == HKCategoryValueSleepAnalysis.asleepUnspecified.rawValue ||
                        sample.value == HKCategoryValueSleepAnalysis.asleepCore.rawValue ||
                        sample.value == HKCategoryValueSleepAnalysis.asleepDeep.rawValue ||
                        sample.value == HKCategoryValueSleepAnalysis.asleepREM.rawValue {
