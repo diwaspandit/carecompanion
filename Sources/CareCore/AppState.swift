@@ -15,11 +15,18 @@ import Observation
     public internal(set) var isPremiumPreview = false
     public internal(set) var isAppointmentPreparedPreview = false
     public private(set) var selectedSeniorID: String
+    public var healthSyncStatus: SyncStatus = SyncStatus()
+    @ObservationIgnored public var healthProvider: (any HealthDataProvider)?
     @ObservationIgnored private let repository: any CareRepository
     @ObservationIgnored private let now: () -> Date
 
-    public init(repository: any CareRepository, now: @escaping () -> Date = { DemoCareRepository.referenceDate }) {
+    public init(
+        repository: any CareRepository,
+        healthProvider: (any HealthDataProvider)? = nil,
+        now: @escaping () -> Date = { DemoCareRepository.referenceDate }
+    ) {
         self.repository = repository
+        self.healthProvider = healthProvider
         self.now = now
         snapshot = repository.snapshot
         selectedSeniorID = repository.snapshot.seniors.first?.id ?? ""
@@ -156,5 +163,60 @@ import Observation
         appointmentPrep = nil
         isPremiumPreview = false
         isAppointmentPreparedPreview = false
+    }
+
+    // MARK: - Health Data Sync
+
+    public func syncHealthData() async {
+        guard let healthProvider = healthProvider else {
+            // No health provider in demo mode
+            return
+        }
+
+        // Check if we have permission
+        let status = await healthProvider.permissionStatus()
+        guard status == .authorized else {
+            healthSyncStatus.healthData = .failed
+            healthSyncStatus.lastError = "Health data access not authorized"
+            return
+        }
+
+        healthSyncStatus.healthData = .syncing
+
+        do {
+            // Fetch health snapshots for the last 7 days
+            let snapshots = try await healthProvider.snapshots(
+                seniorID: selectedSeniorID,
+                endingAt: now()
+            )
+
+            // Upsert health snapshots to repository
+            try await repository.upsertHealthSnapshots(snapshots)
+            snapshot = repository.snapshot
+
+            healthSyncStatus.healthData = .synced
+            healthSyncStatus.lastSyncDate = now()
+            healthSyncStatus.lastError = nil
+
+            showDemoToast("Health data synced successfully")
+        } catch {
+            healthSyncStatus.healthData = .failed
+            healthSyncStatus.lastError = error.localizedDescription
+            showDemoToast("Health sync failed: \(error.localizedDescription)")
+        }
+    }
+
+    public func checkHealthPermissionStatus() async -> HealthPermissionStatus {
+        guard let healthProvider = healthProvider else {
+            return .notDetermined
+        }
+        return await healthProvider.permissionStatus()
+    }
+
+    public func requestHealthPermissions() async throws {
+        guard let healthProvider = healthProvider else {
+            throw CareServiceError.vendorUnavailable
+        }
+        try await healthProvider.requestPermission()
     }
 }

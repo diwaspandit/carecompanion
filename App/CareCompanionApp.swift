@@ -8,7 +8,18 @@ private enum CareRuntime {
 
 @main
 struct CareCompanionApp: App {
-    @State private var state = AppState(repository: DemoCareRepository())
+    @State private var state: AppState = {
+        let repository = DemoCareRepository()
+        #if targetEnvironment(simulator) || os(iOS)
+        // Enable HealthKit in production mode (not demo mode)
+        // For now, we keep it nil to maintain demo mode
+        // In production, this would be: HealthKitHealthDataProvider()
+        let healthProvider: (any HealthDataProvider)? = nil
+        #else
+        let healthProvider: (any HealthDataProvider)? = nil
+        #endif
+        return AppState(repository: repository, healthProvider: healthProvider)
+    }()
 
     var body: some Scene {
         WindowGroup {
@@ -898,6 +909,7 @@ private struct SmallMetric: View {
 
 private struct FamilyProfileView: View {
     @Environment(AppState.self) private var state
+    @State private var showHealthPermissions = false
 
     private struct EmergencyContact: Identifiable {
         let id = UUID()
@@ -989,6 +1001,34 @@ private struct FamilyProfileView: View {
                 }
             }
 
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Settings").font(.system(size: 17, weight: .black)).foregroundStyle(CareTheme.secondaryText)
+                VStack(spacing: 0) {
+                    Button {
+                        showHealthPermissions = true
+                    } label: {
+                        HStack {
+                            Image(systemName: "heart.text.square.fill")
+                                .font(.system(size: 20))
+                                .foregroundStyle(.red)
+                                .frame(width: 32)
+                            Text("Health Data Permissions")
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundStyle(CareTheme.ink)
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 13, weight: .black))
+                                .foregroundStyle(CareTheme.secondaryText)
+                        }
+                        .padding(16)
+                        .background(.white, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(CareTheme.cardStroke))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("profile.healthPermissions")
+                }
+            }
+
             Button {
                 state.switchToSenior()
             } label: {
@@ -1003,6 +1043,9 @@ private struct FamilyProfileView: View {
             }
             .buttonStyle(.plain)
             .accessibilityIdentifier("profile.switchRole")
+        }
+        .sheet(isPresented: $showHealthPermissions) {
+            HealthPermissionsView()
         }
     }
 }

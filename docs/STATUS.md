@@ -1,6 +1,73 @@
 # CareCompanion status
 
-Updated: 2026-09-14. Phase 1 production architecture hardening complete on branch `phase-1`.
+Updated: 2026-09-14. Phase 4 Apple Health sync complete on branch `phase-4`.
+
+## 2026-09-14 Phase 4: Apple Health Sync (branch `phase-4`)
+
+**Goal:** Integrate Apple HealthKit to sync steps, sleep, and resting heart rate data for seniors.
+
+**Completed:**
+- ✅ Added HealthKit capability to Xcode project (`Config/CareCompanion.entitlements`)
+- ✅ Added privacy usage descriptions for HealthKit read access
+- ✅ Implemented `HealthKitHealthDataProvider` with real HKHealthStore queries:
+  - Steps: HKStatisticsCollectionQuery for daily aggregation
+  - Sleep: HKSampleQuery filtering asleep states (core, deep, REM)
+  - Resting Heart Rate: HKSampleQuery for latest daily value
+- ✅ Created `HealthPermissionsView` UI for permission management:
+  - Explains data types and usage
+  - Shows current permission status (notDetermined, authorized, denied, restricted)
+  - Opens iOS Settings if permission denied
+  - Automatically triggers sync after authorization
+- ✅ Integrated health sync into AppState with three new methods:
+  - `syncHealthData()` - fetches and saves health snapshots
+  - `checkHealthPermissionStatus()` - returns current permission state
+  - `requestHealthPermissions()` - requests HealthKit authorization
+- ✅ Added public initializer to HealthSnapshot struct for external creation
+- ✅ Updated FamilyProfileView to include Health Permissions access in Settings
+- ✅ Fixed Swift 6 Sendable conformance by converting lazy var to computed property
+- ✅ Created comprehensive `docs/HEALTHKIT.md` documentation
+- ✅ Added 7 new health-related tests (38 total tests, all passing)
+- ✅ All tests pass: `swift test` — 38 XCTest cases, 0 failures
+- ✅ iOS build succeeds: `xcodebuild ... ONLY_ACTIVE_ARCH=YES build` — BUILD SUCCEEDED
+
+**Exit Criteria Met:**
+- ✅ Read-only HealthKit integration (steps, sleep, resting heart rate)
+- ✅ Permission management with graceful handling of all states
+- ✅ Source labeling distinguishes HealthKit data from demo data
+- ✅ Demo mode unchanged (healthProvider remains nil)
+- ✅ Privacy-first design with clear user explanations
+- ✅ All health data processing stays local (no external servers)
+
+**Files Created:**
+- `Config/CareCompanion.entitlements` (HealthKit capability)
+- `App/Services/HealthKitHealthDataProvider.swift` (280+ lines)
+- `App/Features/HealthPermissionsView.swift` (235 lines)
+- `docs/HEALTHKIT.md` (comprehensive integration guide)
+
+**Files Modified:**
+- `Config/App.xcconfig` (added entitlements reference and privacy descriptions)
+- `Sources/CareCore/AppState.swift` (added healthProvider, healthSyncStatus, and 3 health methods)
+- `Sources/CareCore/Models.swift` (added public init to HealthSnapshot)
+- `App/CareCompanionApp.swift` (added Health Permissions UI integration)
+- `Tests/CareCoreTests/CareCoreTests.swift` (added 7 health tests)
+- `CareCompanion.xcodeproj/project.pbxproj` (added new Swift files to build)
+
+**Verification:**
+```sh
+# Run tests
+swift test
+# Result: 38 tests, 0 failures
+
+# Build iOS app
+xcodebuild -project CareCompanion.xcodeproj -scheme CareCompanion \
+  -destination 'platform=iOS Simulator,name=iPhone 17' \
+  ONLY_ACTIVE_ARCH=YES build
+# Result: BUILD SUCCEEDED
+```
+
+**Next Phase:** Phase 5+ - Background Sync, Additional Metrics, Manual Entry (future enhancements)
+
+---
 
 ## 2026-09-14 Phase 1: Production Architecture Hardening (branch `phase-1`)
 
