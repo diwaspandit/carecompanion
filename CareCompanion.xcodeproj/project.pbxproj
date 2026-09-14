@@ -1,0 +1,44 @@
+// !$*UTF8*$!
+{
+ archiveVersion = 1;
+ classes = {};
+ objectVersion = 56;
+ objects = {
+ A00000000000000000000001 = {isa = PBXProject; attributes = {LastUpgradeCheck = 1600;}; buildConfigurationList = A00000000000000000000002; compatibilityVersion = "Xcode 14.0"; developmentRegion = en; knownRegions = (en, Base); mainGroup = A00000000000000000000003; productRefGroup = A00000000000000000000004; projectDirPath = ""; projectRoot = ""; targets = (A00000000000000000000005, A00000000000000000000030); packageReferences = (A00000000000000000000020);};
+ A00000000000000000000002 = {isa = XCConfigurationList; buildConfigurations = (A00000000000000000000006, A00000000000000000000007); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release;};
+ A00000000000000000000003 = {isa = PBXGroup; children = (A00000000000000000000008, A00000000000000000000009, A00000000000000000000010, A00000000000000000000031, A00000000000000000000004); sourceTree = "<group>";};
+ A00000000000000000000004 = {isa = PBXGroup; children = (A00000000000000000000011, A00000000000000000000032); name = Products; sourceTree = "<group>";};
+ A00000000000000000000005 = {isa = PBXNativeTarget; buildConfigurationList = A00000000000000000000012; buildPhases = (A00000000000000000000013, A00000000000000000000014, A00000000000000000000015); buildRules = (); dependencies = (); name = CareCompanion; packageProductDependencies = (A00000000000000000000021); productName = CareCompanion; productReference = A00000000000000000000011; productType = "com.apple.product-type.application";};
+ A00000000000000000000006 = {isa = XCBuildConfiguration; buildSettings = {SDKROOT = iphoneos; CLANG_ENABLE_MODULES = YES; SWIFT_OPTIMIZATION_LEVEL = "-Onone"; DEBUG_INFORMATION_FORMAT = dwarf;}; name = Debug;};
+ A00000000000000000000007 = {isa = XCBuildConfiguration; buildSettings = {SDKROOT = iphoneos; CLANG_ENABLE_MODULES = YES; SWIFT_COMPILATION_MODE = wholemodule;}; name = Release;};
+ A00000000000000000000008 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/CareCompanionApp.swift; sourceTree = "<group>";};
+ A00000000000000000000009 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/DesignSystem.swift; sourceTree = "<group>";};
+ A00000000000000000000010 = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Config/App.xcconfig; sourceTree = "<group>";};
+ A00000000000000000000011 = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = CareCompanion.app; sourceTree = BUILT_PRODUCTS_DIR;};
+ A00000000000000000000012 = {isa = XCConfigurationList; buildConfigurations = (A00000000000000000000016, A00000000000000000000017); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release;};
+ A00000000000000000000013 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (A00000000000000000000018, A00000000000000000000019); runOnlyForDeploymentPostprocessing = 0;};
+ A00000000000000000000014 = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (A00000000000000000000022); runOnlyForDeploymentPostprocessing = 0;};
+ A00000000000000000000015 = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0;};
+ A00000000000000000000016 = {isa = XCBuildConfiguration; baseConfigurationReference = A00000000000000000000010; buildSettings = {SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;}; name = Debug;};
+ A00000000000000000000017 = {isa = XCBuildConfiguration; baseConfigurationReference = A00000000000000000000010; buildSettings = {}; name = Release;};
+ A00000000000000000000018 = {isa = PBXBuildFile; fileRef = A00000000000000000000008;};
+ A00000000000000000000019 = {isa = PBXBuildFile; fileRef = A00000000000000000000009;};
+ A00000000000000000000020 = {isa = XCLocalSwiftPackageReference; relativePath = .;};
+ A00000000000000000000021 = {isa = XCSwiftPackageProductDependency; package = A00000000000000000000020; productName = CareCore;};
+ A00000000000000000000022 = {isa = PBXBuildFile; productRef = A00000000000000000000021;};
+ A00000000000000000000030 = {isa = PBXNativeTarget; buildConfigurationList = A00000000000000000000036; buildPhases = (A00000000000000000000033, A00000000000000000000034, A00000000000000000000035); buildRules = (); dependencies = (A00000000000000000000043); name = CareCompanionUITests; productName = CareCompanionUITests; productReference = A00000000000000000000032; productType = "com.apple.product-type.bundle.ui-testing";};
+ A00000000000000000000031 = {isa = PBXGroup; children = (A00000000000000000000039); path = CareCompanionUITests; sourceTree = "<group>";};
+ A00000000000000000000032 = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CareCompanionUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR;};
+ A00000000000000000000033 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (A00000000000000000000040); runOnlyForDeploymentPostprocessing = 0;};
+ A00000000000000000000034 = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0;};
+ A00000000000000000000035 = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0;};
+ A00000000000000000000036 = {isa = XCConfigurationList; buildConfigurations = (A00000000000000000000037, A00000000000000000000038); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release;};
+ A00000000000000000000037 = {isa = XCBuildConfiguration; buildSettings = {CODE_SIGN_STYLE = Automatic; GENERATE_INFOPLIST_FILE = YES; IPHONEOS_DEPLOYMENT_TARGET = 17.0; PRODUCT_BUNDLE_IDENTIFIER = com.carecompanion.txstUITests; PRODUCT_NAME = "$(TARGET_NAME)"; SDKROOT = iphoneos; SWIFT_VERSION = 5.0; TARGETED_DEVICE_FAMILY = "1,2"; TEST_TARGET_NAME = CareCompanion; }; name = Debug;};
+ A00000000000000000000038 = {isa = XCBuildConfiguration; buildSettings = {CODE_SIGN_STYLE = Automatic; GENERATE_INFOPLIST_FILE = YES; IPHONEOS_DEPLOYMENT_TARGET = 17.0; PRODUCT_BUNDLE_IDENTIFIER = com.carecompanion.txstUITests; PRODUCT_NAME = "$(TARGET_NAME)"; SDKROOT = iphoneos; SWIFT_VERSION = 5.0; TARGETED_DEVICE_FAMILY = "1,2"; TEST_TARGET_NAME = CareCompanion; }; name = Release;};
+ A00000000000000000000039 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CareCompanionDemoUITests.swift; sourceTree = "<group>";};
+ A00000000000000000000040 = {isa = PBXBuildFile; fileRef = A00000000000000000000039;};
+ A00000000000000000000041 = {isa = PBXContainerItemProxy; containerPortal = A00000000000000000000001; proxyType = 1; remoteGlobalIDString = A00000000000000000000005; remoteInfo = CareCompanion;};
+ A00000000000000000000043 = {isa = PBXTargetDependency; target = A00000000000000000000005; targetProxy = A00000000000000000000041;};
+ };
+ rootObject = A00000000000000000000001;
+}
