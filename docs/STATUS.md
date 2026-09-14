@@ -19,7 +19,7 @@ Updated: 2026-09-14. `phase-4` merges `dev` (Phase 2 Supabase database and accou
 **Verification:**
 - PASS: `swift test`, 49 XCTest cases, 0 failures.
 - PASS: iOS Simulator build with `ARCHS=arm64 ONLY_ACTIVE_ARCH=YES EXCLUDED_ARCHS=x86_64` (a plain build still fails on the x86_64 slice, as noted in Phase 2).
-- Remaining warning: `HealthKitHealthDataProvider` uses the deprecated `HKCategoryValueSleepAnalysis.asleep`.
+- FIXED: Deprecated `HKCategoryValueSleepAnalysis.asleep` replaced with `.asleepUnspecified`.
 
 ## 2026-09-14 Phase 4: Apple Health Sync (branch `phase-4`)
 
