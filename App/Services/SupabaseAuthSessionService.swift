@@ -35,6 +35,16 @@ import Supabase
         }
     }
 
+    /// Developer/test accounts only; families sign in with magic links.
+    func signIn(email: String, password: String) async throws {
+        do {
+            let session = try await client.auth.signIn(email: email.trimmingCharacters(in: .whitespacesAndNewlines), password: password)
+            state = .signedIn(Self.user(from: session.user))
+        } catch {
+            throw SupabaseErrorMapper.map(error)
+        }
+    }
+
     func handleOpenURL(_ url: URL) async throws {
         guard url.scheme == Self.redirectURL.scheme else { return }
         do {

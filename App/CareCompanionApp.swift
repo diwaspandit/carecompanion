@@ -9,12 +9,16 @@ private enum CareRuntime {
 @main
 struct CareCompanionApp: App {
     @State private var state = AppState(repository: DemoCareRepository())
+    @State private var live = LiveModeController()
 
     var body: some Scene {
         WindowGroup {
             RootView()
-                .environment(state)
+                .id(live.isLive)
+                .environment(live.liveState ?? state)
+                .environment(live)
                 .preferredColorScheme(.light)
+                .onOpenURL { url in Task { await live.handleOpenURL(url) } }
         }
     }
 }
@@ -1509,6 +1513,12 @@ private struct DemoMenuView: View {
                         dismiss()
                     }
                 }
+                #if DEBUG
+                Section("Developer") {
+                    NavigationLink("Live Supabase") { LiveModeView() }
+                        .accessibilityIdentifier("demo.liveSupabase")
+                }
+                #endif
             }
             .navigationTitle("CareCompanion")
         }

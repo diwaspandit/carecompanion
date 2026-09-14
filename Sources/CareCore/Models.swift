@@ -22,6 +22,15 @@ public struct AccountSenior: Identifiable, Equatable, Codable, Sendable {
     public var age: Int
     public var city: String
     public var timeZoneIdentifier: String
+
+    public init(id: String, accountID: String, name: String, age: Int, city: String, timeZoneIdentifier: String) {
+        self.id = id
+        self.accountID = accountID
+        self.name = name
+        self.age = age
+        self.city = city
+        self.timeZoneIdentifier = timeZoneIdentifier
+    }
 }
 public struct CheckIn: Identifiable, Equatable, Codable, Sendable {
     public let id: String
@@ -58,6 +67,16 @@ public struct Appointment: Identifiable, Equatable, Codable, Sendable {
     public var date: Date
     public var location: String
     public var notes: String
+
+    public init(id: String, seniorID: String, title: String, clinician: String, date: Date, location: String, notes: String) {
+        self.id = id
+        self.seniorID = seniorID
+        self.title = title
+        self.clinician = clinician
+        self.date = date
+        self.location = location
+        self.notes = notes
+    }
 }
 public struct CareAlert: Identifiable, Equatable, Codable, Sendable {
     public let id: String

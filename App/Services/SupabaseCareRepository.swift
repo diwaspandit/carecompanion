@@ -272,6 +272,11 @@ import Supabase
             timeZoneIdentifier: senior.timeZoneIdentifier))
     }
 
+    func addMedication(seniorID: String, name: String, scheduledTime: String) async throws {
+        try await insert("medications", MedicationInsert(accountID: try account(for: seniorID), seniorID: seniorID,
+                                                        name: name, scheduledTime: scheduledTime))
+    }
+
     func updateSenior(_ senior: AccountSenior) async throws {
         try await perform {
             try await client.from("account_seniors")
@@ -334,6 +339,13 @@ private struct MoodInsert: Encodable, Sendable {
     let accountID: String, seniorID: String, mood: String, occurredAt: Date
     enum CodingKeys: String, CodingKey {
         case mood, accountID = "account_id", seniorID = "senior_id", occurredAt = "occurred_at"
+    }
+}
+
+private struct MedicationInsert: Encodable, Sendable {
+    let accountID: String, seniorID: String, name: String, scheduledTime: String
+    enum CodingKeys: String, CodingKey {
+        case name, accountID = "account_id", seniorID = "senior_id", scheduledTime = "scheduled_time"
     }
 }
 
