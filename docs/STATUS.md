@@ -29,6 +29,15 @@ Updated: 2026-09-14. Claude/Lovable reference UI plus functional demo click-thro
 - Verified live on the iPhone 17 simulator: "Messages" now shows its own screen, tab highlighted, no longer opens Mood.
 - PASS: `swift test` — 19 XCTest cases, 0 failures (re-verified). PASS: iOS Simulator build (re-verified).
 
+## 2026-09-14 family Profile screen (branch `phase-0-stabilize-demo`)
+
+- New feature, not a bug fix: added a "Profile" tab (`person.crop.circle`) to the family bottom bar, replacing the standalone "Chats" tab button — matching `docs/LOVABLE_REFERENCE.md`'s live site, which has a Profile tab on the family side only (senior side has no Profile in the reference either; Home/Medicines/Visits only).
+- Adapted rather than ported 1:1: the reference's Profile screen includes "Linked devices" (Apple Watch/iPhone battery + sync status) and stats captioned "Auto-calibrated from Apple Health" — both directly conflict with AGENTS.md's explicit exclusion of HealthKit/Apple Watch and its rule that seeded data must never claim HealthKit provenance. Kept the senior header, emergency contacts (with Add), medications (reusing `MedicineListView`), and a health-stats card, but relabeled the stats "Demo data for this preview, not synced from HealthKit." (same pattern as the Health Timeline/family dashboard notices) and dropped the Linked Devices section.
+- "Switch role" is wired to `AppState.switchToSenior()` (already existed, unused until now) — this is the first thing in the app that fulfills onboarding's existing copy, "You can switch roles later in Settings."
+- `ChatsView` itself is untouched and still reachable from Alert row "Message" actions (`state.familyTab = .chats`); only its persistent tab bar button was removed, matching the reference.
+- Verified live on the iPhone 17 simulator: Home → family → Profile shows the full adapted layout; Switch role genuinely returns to Maya's Senior Home.
+- PASS: `swift test` — 19 XCTest cases, 0 failures. PASS: iOS Simulator build — BUILD SUCCEEDED.
+
 ## 2026-09-14 checkpoint
 
 - Implemented the Claude/Lovable-inspired SwiftUI demo: onboarding, senior home, mood recording, medications, SOS countdown, family dashboard, AI insight teaser/full state, appointment prep, paywall fallback and hidden demo menu.

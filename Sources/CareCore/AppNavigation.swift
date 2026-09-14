@@ -21,6 +21,7 @@ public enum FamilyTab: String, Codable, Sendable {
     case appointments
     case emergency
     case chats
+    case profile
 }
 
 public enum PaywallContext: String, Identifiable, Codable, Sendable {
