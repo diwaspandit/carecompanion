@@ -24,7 +24,7 @@ public struct DefaultPlanService: PlanService {
     }
 
     public func canUsePremiumAI(subscription: SubscriptionAccess) -> Bool {
-        !subscription.activeEntitlements.isDisjoint(with: ["plus_plan", "pro_plan", "premium_insights"])
+        subscription.canUsePremiumAI
     }
 
     public func canUseCoreCare() -> Bool {
@@ -33,8 +33,6 @@ public struct DefaultPlanService: PlanService {
     }
 
     public func seniorLimit(for subscription: SubscriptionAccess) -> Int {
-        if subscription.activeEntitlements.contains("pro_plan") { return 25 }
-        if subscription.activeEntitlements.contains("plus_plan") { return 5 }
-        return 1
+        subscription.seniorLimit
     }
 }

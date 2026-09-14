@@ -1,6 +1,77 @@
 # CareCompanion status
 
-Updated: 2026-09-14. Phase 2 (database and account information flow) COMPLETE on branch `phase-2`. Migrations are live and all exit criteria were verified against the live project.
+Updated: 2026-09-14. Phase 3 (RevenueCat sponsor integration) implemented on branch `phase-3-sponsor`, configured against a real RevenueCat Test Store project. Phase 2 (database and account information flow) is COMPLETE — see below.
+
+## 2026-09-14 Phase 3: Sponsor Integration With RevenueCat (branch `phase-3-sponsor`)
+
+**Scope note:** mid-phase the product ask expanded to a 4-tier system (Free/Plus/Pro/Enterprise,
+Enterprise seat count "depending on their count"). This conflicts with `AGENTS.md`'s explicit
+exclusion of production enterprise billing and organization UI, and StoreKit/RevenueCat can't sell
+an arbitrary typed-in seat quantity without a custom billing backend (also forbidden). Resolved
+with the product owner via two direct questions: Free/Plus/Pro are real, RevenueCat-backed tiers;
+Enterprise is a "contact us" stub in a 4-tier Compare Plans screen with no RevenueCat product
+behind it. Full rationale in `docs/REVENUECAT.md`.
+
+**Completed:**
+- ✅ Added `PlanTier` (free/plus/pro/enterprise) and `PlanCatalog`/`PlanDescriptor` to CareCore —
+  vendor-free, drives the Compare Plans screen. `SubscriptionAccess` gained `.tier` and
+  `enterpriseSeatLimit` (architecture-only; no real Enterprise product exists).
+- ✅ `App/Services/RevenueCatConfiguration.swift` reads `REVENUECAT_API_KEY` from git-ignored
+  `Config/Secrets.xcconfig` (same pattern as `SupabaseConfig`) and configures the SDK.
+- ✅ `App/Services/RevenueCatSubscriptionService.swift` implements CareCore's `SubscriptionService`
+  against `Purchases.shared` and is the `PurchasesDelegate` for push-driven entitlement updates.
+- ✅ `App/Services/SubscriptionController.swift` owns the lifecycle: cached last-known entitlements
+  for a graceful cold start, refresh on launch/foreground/CustomerInfo push, restore purchases.
+- ✅ `App/Features/PaywallHostView.swift`: `state.showPaywall(for:)` now opens the real
+  `RevenueCatUI.PaywallView` when configured (per AGENTS.md: "Do not build a custom paywall if
+  RevenueCatUI can provide it"), falling back to the original local Test Store simulated sheet
+  (`TestStorePaywallFallbackView`) when no secrets are present — demo mode stays fully offline.
+  Includes `PlansComparisonView`, the 4-tier Free/Plus/Pro/Enterprise compare screen.
+- ✅ RevenueCat + RevenueCatUI (`purchases-ios`, `upToNextMajorVersion` from 5.0.0) added to the
+  Xcode project's package references, linked to the app target only — CareCore stays
+  dependency-free, matching the Supabase precedent from Phase 1/2.
+- ✅ 5 new unit tests covering tier resolution, enterprise seat-limit fallback (`Int.max` when
+  unset), `PlanCatalog`'s purchasable flags, and the `applySubscriptionAccess` vendor bridge.
+- ✅ `docs/REVENUECAT.md`: dashboard setup checklist, entitlement mapping, the Enterprise-stub
+  rationale, and the recommended design (fixed seat-tier SKUs) if Enterprise ever becomes real.
+
+**Verification:**
+- PASS: `swift test` (Xcode toolchain, `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer`
+  — this sandbox's default Command Line Tools lack XCTest) — 47 XCTest cases, 0 failures (5 new).
+- PASS: iOS Simulator build (`xcodebuild ... ARCHS=arm64 ONLY_ACTIVE_ARCH=YES
+  EXCLUDED_ARCHS=x86_64 build`) — resolves the RevenueCat SPM package from GitHub and links it, no
+  warnings in the new files.
+- FOUND AND FIXED during verification: the first build launched but crashed immediately —
+  `Fatal error: Purchases has not been configured. Please call Purchases.configure()`. Cause:
+  `SubscriptionController`'s `@State` initial value constructed `RevenueCatSubscriptionService`
+  (which sets `Purchases.shared.delegate`) before the App's `.task` had run
+  `RevenueCatConfiguration.configureIfNeeded()`. Fixed by moving `configureIfNeeded()` into
+  `SubscriptionController.init()`, synchronously before constructing the service.
+- PASS: reinstalled and relaunched on the iPhone 17 simulator with the real
+  `test_LbkQbPNneNPOWTAzWyCrzSmBOha` Test Store key configured in `Config/Secrets.xcconfig`. No
+  crash; onboarding renders correctly. Device log shows RevenueCat's expected Test Store warning
+  and a successful network round trip to `config.revenuecat-static.com` — the key is valid and the
+  SDK is live, not just compiling.
+- NOT COMPLETE: the RevenueCatUI paywall sheet itself (tapping "Unlock full insight" → real
+  purchase sheet → Test Store purchase → premium unlock) was not tap-tested — this sandbox has no
+  working UI test runner (`CareCompanionDemoUITests` was already blocked here for the same
+  `XCTDaemonErrorDomain` accessibility-daemon reason noted in the Phase 0 checkpoint below). Needs
+  a manual run in a normal Xcode/Terminal session, or `swift test`'s XCUITest path once available.
+- NOT COMPLETE: the RevenueCat dashboard itself has no Plus/Pro products/offering configured yet
+  (only the Test Store project + API key exist) — `docs/REVENUECAT.md` has the exact checklist.
+  Until that's done, the real `PaywallView()` will render with no packages to sell.
+
+**Known limitation (documented in docs/REVENUECAT.md):** the hidden `#if DEBUG` Live Supabase
+developer screen swaps to a second `AppState` instance; `SubscriptionController` only applies
+entitlement updates to the base demo `AppState`, not that live instance. Doesn't affect the main
+demo path.
+
+**Next action:** configure Plus/Pro products and an offering in the RevenueCat dashboard (see
+`docs/REVENUECAT.md`), then run the full Test Store purchase flow on-device outside this sandbox.
+After that, Phase 4 (Apple Health sync) or Phase 6 (safe live AI), per the plan's implementation
+order.
+
+---
 
 ## 2026-09-14 Phase 2 live verification
 

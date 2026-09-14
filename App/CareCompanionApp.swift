@@ -10,6 +10,8 @@ private enum CareRuntime {
 struct CareCompanionApp: App {
     @State private var state = AppState(repository: DemoCareRepository())
     @State private var live = LiveModeController()
+    @State private var subscriptions = SubscriptionController()
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some Scene {
         WindowGroup {
@@ -17,8 +19,16 @@ struct CareCompanionApp: App {
                 .id(live.isLive)
                 .environment(live.liveState ?? state)
                 .environment(live)
+                .environment(subscriptions)
                 .preferredColorScheme(.light)
                 .onOpenURL { url in Task { await live.handleOpenURL(url) } }
+                .task {
+                    await subscriptions.start(applyingTo: state)
+                }
+                .onChange(of: scenePhase) { _, phase in
+                    guard phase == .active else { return }
+                    Task { await subscriptions.refresh(applyingTo: state) }
+                }
         }
     }
 }
@@ -56,7 +66,7 @@ private struct RootView: View {
         .tint(CareTheme.sageDark)
         .sheet(isPresented: $showDemoMenu) { DemoMenuView() }
         .sheet(item: $state.paywallContext) { context in
-            PaywallFallbackView(context: context)
+            PaywallHostView(context: context)
                 .presentationDetents([.medium, .large])
         }
         .animation(.spring(response: 0.3, dampingFraction: 0.85), value: state.screen)
@@ -1444,48 +1454,11 @@ private struct ChatsView: View {
     }
 }
 
-private struct PaywallFallbackView: View {
-    @Environment(AppState.self) private var state
-    let context: PaywallContext
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 22) {
-            PlainPill(text: "Plus plan", icon: "sparkles", color: CareTheme.gold, fill: CareTheme.goldPale)
-            Text(context == .careInsight ? "Unlock premium care insight" : "Unlock appointment preparation")
-                .font(.system(size: 34, weight: .black, design: .rounded))
-                .foregroundStyle(CareTheme.ink)
-            Text("Plus includes AI Care Insights, AI Appointment Prep, and support for up to five monitored seniors.")
-                .font(.system(size: 18))
-                .lineSpacing(5)
-                .foregroundStyle(CareTheme.secondaryText)
-            Spacer()
-            Button {
-                state.unlockPremiumPreview()
-                Task {
-                    if context == .careInsight {
-                        await state.loadCareInsight()
-                    } else {
-                        await state.prepareAppointment()
-                    }
-                }
-            } label: {
-                Text("Buy with Test Store")
-            }
-            .buttonStyle(ReferenceButtonStyle(fill: CareTheme.sage, height: 62, radius: 22))
-            .accessibilityIdentifier("paywall.buy")
-            Button("Not now") { state.paywallContext = nil }
-                .font(.system(size: 17, weight: .bold))
-                .foregroundStyle(CareTheme.secondaryText)
-                .frame(maxWidth: .infinity, minHeight: 50)
-        }
-        .padding(24)
-        .background(CareTheme.background)
-    }
-}
-
 private struct DemoMenuView: View {
     @Environment(AppState.self) private var state
+    @Environment(SubscriptionController.self) private var subscriptions
     @Environment(\.dismiss) private var dismiss
+    @State private var showPlans = false
 
     var body: some View {
         NavigationStack {
@@ -1512,6 +1485,17 @@ private struct DemoMenuView: View {
                         state.unlockPremiumPreview()
                         dismiss()
                     }
+                    Button("Compare plans") { showPlans = true }
+                        .accessibilityIdentifier("demo.comparePlans")
+                    if subscriptions.isConfigured {
+                        Button("Restore purchases") {
+                            Task {
+                                await subscriptions.restore(applyingTo: state)
+                                dismiss()
+                            }
+                        }
+                        .accessibilityIdentifier("demo.restorePurchases")
+                    }
                 }
                 #if DEBUG
                 Section("Developer") {
@@ -1522,6 +1506,7 @@ private struct DemoMenuView: View {
             }
             .navigationTitle("CareCompanion")
         }
+        .sheet(isPresented: $showPlans) { PlansComparisonView() }
     }
 }
 

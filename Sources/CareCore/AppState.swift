@@ -131,6 +131,11 @@ import Observation
         paywallContext = nil
         showDemoToast("Premium AI unlocked for the demo.")
     }
+    /// Bridge point for a real SubscriptionService (RevenueCatSubscriptionService in the App
+    /// target) to report entitlements without CareCore knowing about the vendor SDK.
+    public func applySubscriptionAccess(_ access: SubscriptionAccess) {
+        subscription = access
+    }
     public func loadCareInsight(using service: any AIService = MockAIService()) async {
         guard hasPremiumAccess else {
             showPaywall(for: .careInsight)

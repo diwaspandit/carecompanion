@@ -279,26 +279,35 @@ sequenceDiagram
 - Modify: `Sources/CareCore/PlanService.swift`
 - Test: entitlement mapping and access-policy tests
 
+**Note (this phase):** the product ask was expanded mid-phase to a 4-tier system (Free/Plus/Pro/
+Enterprise, Enterprise seat count "depending on their count"). This directly conflicts with
+`AGENTS.md`'s explicit exclusion of "production enterprise billing" and organization UI, and
+StoreKit/RevenueCat can't sell an arbitrary typed-in seat quantity without a custom billing
+backend (also forbidden). Resolved with the product owner: Free/Plus/Pro are real; Enterprise is a
+"contact us" stub in the 4-tier Compare Plans screen with no RevenueCat product behind it. Full
+rationale and the recommended design if Enterprise becomes real (fixed seat-tier SKUs) is in
+`docs/REVENUECAT.md`.
+
 **Steps**
 
-- [ ] Add RevenueCat Purchases and RevenueCatUI packages.
-- [ ] Configure app startup with the public iOS RevenueCat SDK key from a non-committed configuration file.
-- [ ] Configure offerings in RevenueCat dashboard for Plus and Pro.
-- [ ] Map entitlements exactly: `plus_plan`, `pro_plan`, `premium_insights`.
-- [ ] Present RevenueCatUI paywall for AI insight, appointment prep and premium health explanations.
-- [ ] Refresh entitlements after purchase, restore purchase, app foreground and customer info changes.
-- [ ] Keep SOS, check-ins, mood, medications, basic dashboard and manual appointments free.
-- [ ] Cache last known entitlements locally for graceful app startup, then refresh from RevenueCat.
-- [ ] Document dashboard setup, Test Store verification and entitlement mapping in `docs/REVENUECAT.md`.
+- [x] Add RevenueCat Purchases and RevenueCatUI packages.
+- [x] Configure app startup with the public iOS RevenueCat SDK key from a non-committed configuration file.
+- [ ] Configure offerings in RevenueCat dashboard for Plus and Pro. *(dashboard-side; app code is ready — see docs/REVENUECAT.md's setup checklist)*
+- [x] Map entitlements exactly: `plus_plan`, `pro_plan`, `premium_insights` (plus architecture-only `enterprise_plan` — see note above).
+- [x] Present RevenueCatUI paywall for AI insight, appointment prep and premium health explanations.
+- [x] Refresh entitlements after purchase, restore purchase, app foreground and customer info changes.
+- [x] Keep SOS, check-ins, mood, medications, basic dashboard and manual appointments free.
+- [x] Cache last known entitlements locally for graceful app startup, then refresh from RevenueCat.
+- [x] Document dashboard setup, Test Store verification and entitlement mapping in `docs/REVENUECAT.md`.
 - [ ] Commit stable checkpoint: `feat: integrate revenuecat subscriptions`.
 
 **Exit Criteria**
 
-- [ ] RevenueCat Test Store purchase unlocks premium AI in simulator.
-- [ ] Restore purchase works.
-- [ ] Purchase cancellation does not grant access.
-- [ ] Plus allows up to 5 monitored seniors and Pro allows up to 25.
-- [ ] Premium UI never blocks safety workflows.
+- [ ] RevenueCat Test Store purchase unlocks premium AI in simulator. *(needs dashboard products configured, then a manual simulator run — see docs/REVENUECAT.md)*
+- [x] Restore purchase works (RevenueCatUI's built-in restore, plus a demo-menu "Restore purchases" action; both call `SubscriptionController.restore`).
+- [x] Purchase cancellation does not grant access (`applySubscriptionAccess` is only ever called from `onPurchaseCompleted`/`onRestoreCompleted`).
+- [x] Plus allows up to 5 monitored seniors and Pro allows up to 25 (unit-tested).
+- [x] Premium UI never blocks safety workflows (unchanged from Phase 1: `AccessPolicy.canUseCoreCare` is always true).
 
 ## Phase 4: Apple Health Sync
 

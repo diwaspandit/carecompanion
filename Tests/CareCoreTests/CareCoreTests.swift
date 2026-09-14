@@ -367,6 +367,50 @@ final class CareCoreTests: XCTestCase {
         }
     }
 
+    // MARK: - Phase 3 Plan Tier Tests
+
+    func testPlanTierResolvesFromEntitlements() {
+        XCTAssertEqual(SubscriptionAccess().tier, .free)
+        XCTAssertEqual(SubscriptionAccess(activeEntitlements: ["plus_plan"]).tier, .plus)
+        XCTAssertEqual(SubscriptionAccess(activeEntitlements: ["pro_plan"]).tier, .pro)
+        XCTAssertEqual(SubscriptionAccess(activeEntitlements: ["plus_plan", "pro_plan"]).tier, .pro)
+        XCTAssertEqual(SubscriptionAccess(activeEntitlements: ["enterprise_plan"]).tier, .enterprise)
+        XCTAssertEqual(SubscriptionAccess(activeEntitlements: ["premium_insights"]).tier, .free)
+    }
+
+    func testEnterpriseSeniorLimitFallsBackToUnboundedWithoutASeatCount() {
+        let noSeatCount = SubscriptionAccess(activeEntitlements: ["enterprise_plan"])
+        XCTAssertEqual(noSeatCount.seniorLimit, Int.max)
+        let withSeatCount = SubscriptionAccess(activeEntitlements: ["enterprise_plan"], enterpriseSeatLimit: 400)
+        XCTAssertEqual(withSeatCount.seniorLimit, 400)
+        XCTAssertTrue(withSeatCount.canUsePremiumAI)
+    }
+
+    func testPlanCatalogHasFourTiersWithOnlyPlusAndProPurchasable() {
+        XCTAssertEqual(PlanCatalog.all.map(\.tier), [.free, .plus, .pro, .enterprise])
+        XCTAssertEqual(PlanCatalog.all.filter(\.isPurchasable).map(\.tier), [.plus, .pro])
+        XCTAssertFalse(PlanCatalog.all.first { $0.tier == .free }!.isPurchasable)
+        XCTAssertFalse(PlanCatalog.all.first { $0.tier == .enterprise }!.isPurchasable)
+    }
+
+    func testPlanServiceEnforcesEnterpriseSeatLimit() {
+        let planService = DefaultPlanService()
+        let enterprise = SubscriptionAccess(activeEntitlements: ["enterprise_plan"], enterpriseSeatLimit: 60)
+        XCTAssertTrue(planService.canAddSenior(currentCount: 59, subscription: enterprise))
+        XCTAssertFalse(planService.canAddSenior(currentCount: 60, subscription: enterprise))
+        XCTAssertTrue(planService.canUsePremiumAI(subscription: enterprise))
+    }
+
+    func testApplySubscriptionAccessUpdatesStateFromAVendorBridge() async {
+        await MainActor.run {
+            let state = AppState(repository: DemoCareRepository())
+            XCTAssertFalse(state.hasPremiumAccess)
+            state.applySubscriptionAccess(SubscriptionAccess(activeEntitlements: ["pro_plan"]))
+            XCTAssertTrue(state.hasPremiumAccess)
+            XCTAssertEqual(state.subscription.seniorLimit, 25)
+        }
+    }
+
     func testRepositoryAppointmentOperations() async throws {
         let repository = await MainActor.run { DemoCareRepository() }
         let seniorID = DemoCareRepository.mayaID
