@@ -781,6 +781,10 @@ private struct SeniorReferenceCard: View {
                     SmallMetric(title: "Steps", value: "2,840", icon: "shoeprints.fill", color: CareTheme.blue, identifier: "family.steps")
                     SmallMetric(title: "Sleep", value: "6h 20min", icon: "moon", color: CareTheme.blue, identifier: "family.sleep")
                 }
+                Text("Steps and sleep are demo data for this preview, not synced from HealthKit.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(CareTheme.mutedText)
+                    .accessibilityIdentifier("family.demoDataNotice")
             }
         }
     }
@@ -1078,6 +1082,10 @@ private struct HealthTimelineView: View {
         VStack(alignment: .leading, spacing: 18) {
             Text("Health Timeline").font(.system(size: 28, weight: .black))
             Text("Maya Sharma · last 7 days").font(.system(size: 15)).foregroundStyle(CareTheme.secondaryText)
+            Text("Demo data for this preview, not synced from HealthKit.")
+                .font(.system(size: 12))
+                .foregroundStyle(CareTheme.mutedText)
+                .accessibilityIdentifier("timeline.demoDataNotice")
             AIInsightReferenceCard()
             SleepChartCard()
             StepsChartCard()

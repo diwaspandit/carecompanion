@@ -2,6 +2,16 @@
 
 Updated: 2026-09-14. Claude/Lovable reference UI plus functional demo click-through implemented on branch Dwmi01; iOS build and simulator launch verified.
 
+## 2026-09-14 Phase 0 stabilization checkpoint (branch `phase-0-stabilize-demo`)
+
+- Added a visible "demo data, not synced from HealthKit" notice on the family dashboard steps/sleep metrics and on the Health Timeline screen, per AGENTS.md's requirement that seeded data never be presented as HealthKit data.
+- Attempted a full `xcodebuild test` run (unit tests + `CareCompanionDemoUITests`, which already covers the core demo path three times plus an SOS/reset path) on a booted iPhone 17 Pro simulator.
+  - PASS: the app and test targets build cleanly.
+  - BLOCKED (environment, not code): the UI test runner failed to initialize with `XCTDaemonErrorDomain Code=18 "Timed out waiting for AX loaded notification"` — the simulator's accessibility daemon did not come up in this sandboxed session. This is an environment limitation of the sandbox, not a defect in the app or the tests; it needs to be run outside this sandbox (a normal Xcode/Terminal session) to get a real pass/fail signal.
+- PASS: `swift test` — 19 XCTest cases, 0 failures (re-verified after the copy change).
+- PASS: `xcodebuild ... build` for the iOS Simulator — BUILD SUCCEEDED (re-verified after the copy change).
+- STILL NOT COMPLETE: three consecutive 90-second demo runs, manual or via `CareCompanionDemoUITests`, have not been observed to pass — blocked on the sandbox's AX daemon issue above for the automated path; manual runs need a human or a non-sandboxed session.
+
 ## 2026-09-14 checkpoint
 
 - Implemented the Claude/Lovable-inspired SwiftUI demo: onboarding, senior home, mood recording, medications, SOS countdown, family dashboard, AI insight teaser/full state, appointment prep, paywall fallback and hidden demo menu.
