@@ -5,6 +5,9 @@ import Foundation
     /// Current snapshot of all care data
     var snapshot: CareSnapshot { get }
 
+    /// Re-reads the source of truth, e.g. after a realtime change from another device.
+    func refresh() async throws
+
     // MARK: - Check-in Operations
     /// Record a check-in for a senior
     func checkIn(seniorID: String, at date: Date) async throws
@@ -85,6 +88,8 @@ import Foundation
         )
         snapshot = seed
     }
+    public func refresh() async throws {}
+
     private func contains(_ seniorID: String) -> Bool {
         snapshot.seniors.contains { $0.id == seniorID }
     }

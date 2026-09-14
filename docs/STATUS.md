@@ -1,6 +1,25 @@
 # CareCompanion status
 
-Updated: 2026-09-14. Phase 4 Apple Health sync complete on branch `phase-4`.
+Updated: 2026-09-14. `phase-4` merges `dev` (Phase 2 Supabase database and account flow) with Phase 4 Apple Health sync. Phase 4 notes come first, then Phase 2.
+
+## 2026-09-14 Merge: `dev` (Phase 2) into `phase-4`
+
+`dev` contained all of `phase-2` (PR #3). Both branches started from `66c69d1`.
+
+**Conflicts resolved:**
+- `App/CareCompanionApp.swift`: kept the Phase 4 HealthKit provider on the demo `AppState` and the Phase 2 `LiveModeController`.
+- `CareCompanion.xcodeproj/project.pbxproj`: both branches had used object IDs `A…044`–`A…047` for different things (Phase 4: HealthKit source files; Phase 2: the Supabase package). The project now uses Phase 2's objects, with the two Phase 4 source files re-added as `A…057`–`A…060`.
+- `docs/STATUS.md`: kept both phase sections.
+- `Config/App.xcconfig` merged automatically. The built app's Info.plist carries both Phase 2's Supabase keys and URL scheme and Phase 4's HealthKit usage strings.
+
+**Other changes in the merge:**
+- Live Supabase mode (`LiveModeController.goLive`) now also gets the HealthKit provider, so Sync Now works against the live repository.
+- Fixed a Swift 6 build error that was already on `dev`: `SupabaseCareRepository.startRealtime` captured the main-actor repository inside task-group child tasks. It now runs one main-actor `Task` per realtime table. Not yet re-checked against live Supabase realtime.
+
+**Verification:**
+- PASS: `swift test`, 49 XCTest cases, 0 failures.
+- PASS: iOS Simulator build with `ARCHS=arm64 ONLY_ACTIVE_ARCH=YES EXCLUDED_ARCHS=x86_64` (a plain build still fails on the x86_64 slice, as noted in Phase 2).
+- Remaining warning: `HealthKitHealthDataProvider` uses the deprecated `HKCategoryValueSleepAnalysis.asleep`.
 
 ## 2026-09-14 Phase 4: Apple Health Sync (branch `phase-4`)
 
@@ -66,6 +85,50 @@ xcodebuild -project CareCompanion.xcodeproj -scheme CareCompanion \
 ```
 
 **Next Phase:** Phase 5+ - Background Sync, Additional Metrics, Manual Entry (future enhancements)
+
+Phase 2 (database and account information flow) was completed on branch `phase-2` and merged to `dev` in PR #3. Migrations are live and all exit criteria were verified against the live project.
+
+## 2026-09-14 Phase 2 live verification
+
+- PASS: both migrations applied via the Supabase SQL Editor. All 15 tables exist, and the publishable key alone gets `42501` on every table and on `create_care_account`.
+- PASS: `Supabase/tests/live_smoke.sh` against project `ncqzcdaudhfwvzkosldj`, using three auto-confirmed test users (`diwas.test@`, `maya.test@`, `outsider.test@carecompanion.dev`). Diwas created an account and added Maya as senior; Maya joined by invite code and checked in; Diwas sees the check-in. The outsider reads 0 rows, their write is rejected with `42501`, and anon reads nothing.
+- PASS: realtime end-to-end in the iPhone 17 simulator. Diwas signed in on the hidden Developer → Live Supabase screen, added starter medications, switched to live data and opened the family dashboard ("0 of 4 taken"). Maya then recorded a `medication_events` row through the REST API, and the dashboard changed to "1 of 4 taken" with no interaction or restart.
+- Noted for Phase 5: several family dashboard strings are still hard-coded demo copy (the "Ramesh" avatar, "Checked in 2 hours ago", the AI insight teaser, "Grandmother"). In live mode they don't reflect database data; medication counts, mood and check-in state do.
+
+**Exit criteria (all met):**
+- ✅ Maya and Diwas can share one account in production mode.
+- ✅ Cross-account reads are denied by RLS (local contract test + live smoke test).
+- ✅ Realtime updates refresh the family dashboard without restarting the app.
+- ✅ Demo mode still runs when Supabase is unreachable. It remains the default launch path, and the developer screen is `#if DEBUG` only.
+
+## 2026-09-14 Phase 2: Database And Account Information Flow (branch `phase-2`)
+
+**Completed:**
+- ✅ Supabase Swift SDK 2.55.2 linked to the app target only. CareCore stays dependency-free, so `swift test` needs no network.
+- ✅ Secrets via git-ignored `Config/Secrets.xcconfig` → `Config/Info.plist`. `SupabaseConfig.sharedClient` is `nil` without secrets, so fresh clones stay in demo mode.
+- ✅ Schema for all 15 planned tables, with `updated_at` triggers and indexes for membership, dashboard, latest-health and realtime feed queries (`Supabase/migrations/20260914000001_care_schema.sql`).
+- ✅ RLS on every table, requiring membership in the row's `account_id`. Senior-scoped writes must also reference a senior of that account. The anon role is revoked (`20260914000002_rls_and_account_flow.sql`).
+- ✅ `create_care_account` / `join_care_account` RPCs with invite codes, an auto-created profile per auth user, and the realtime publication for 8 care tables.
+- ✅ `SupabaseCareRepository` implements `CareRepository` (reads, all writes, idempotent SOS, soft deletes) and refreshes on realtime changes filtered by account.
+- ✅ `AuthSessionService` protocol and `DemoAuthSessionService` bypass in CareCore; `SupabaseAuthSessionService` uses a magic link with the `carecompanion://login-callback` URL scheme.
+- ✅ `CareRecords` maps rows to `CareSnapshot`, with "today" evaluated in the senior's time zone; `AppState.refresh()` picks up external changes.
+- ✅ `docs/DATABASE.md` covers the schema, RLS policy intent, account data flow and setup checklist.
+
+**Verification:**
+- PASS: `swift test` — 42 XCTest cases, 0 failures (11 new).
+- PASS: `Supabase/tests/run_local.sh` — migrations apply cleanly on local Postgres 15; RLS contract test passes. It fails as expected when a read policy is weakened to `using (true)`.
+- PASS: iOS Simulator build (`xcodebuild … ARCHS=arm64 ONLY_ACTIVE_ARCH=YES EXCLUDED_ARCHS=x86_64 build`), no warnings in `App/Services`.
+- PASS: demo mode still launches on iPhone 17 simulator; onboarding → Senior Home works offline.
+
+**Exit criteria status:**
+- ✅ Cross-account reads are denied by RLS (local contract test).
+- ✅ Demo mode still runs when Supabase is unreachable (demo never constructs a client).
+- NOT COMPLETE: migrations not yet applied to the live project (`ncqzcdaudhfwvzkosldj`). This needs the database password or a manual SQL Editor run.
+- NOT COMPLETE: "Maya and Diwas share one account" and "realtime refreshes the family dashboard" are implemented and covered by SQL tests, but have not been exercised end-to-end on devices. No production-mode UI exists until Phase 5 onboarding.
+
+**Build note:** a plain simulator build also tries x86_64, and the CareCore link fails for that slice. Use the arm64-only flags above on Apple Silicon.
+
+**Next action:** Phase 3 (RevenueCat), per the plan's implementation order.
 
 ---
 
