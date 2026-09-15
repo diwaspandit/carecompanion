@@ -17,6 +17,53 @@ final class CareCompanionDemoUITests: XCTestCase {
         try runCoreDemoPath()
     }
 
+    func testFamilyLandingAndCareDetails() throws {
+        let app = launchApp()
+        app.element("onboarding.family").tap()
+        XCTAssertTrue(app.element("family.title").waitForExistence(timeout: 6))
+        XCTAssertTrue(app.staticTexts["Waiting to hear from Maya"].exists)
+        XCTAssertTrue(app.element("family.openCare").isHittable)
+        XCTAssertFalse(app.element("family.steps").exists)
+        attachScreenshot(app, name: "Family home - initial")
+
+        for name in ["Ramesh", "Lakshmi", "Hari"] {
+            let card = app.element("family.sample.\(name.lowercased())")
+            XCTAssertTrue(card.isHittable)
+            card.tap()
+            XCTAssertTrue(app.element("sampleProfile.name").waitForExistence(timeout: 3))
+            XCTAssertEqual(app.element("sampleProfile.name").label, name)
+            app.buttons["sampleProfile.done"].tap()
+        }
+        XCTAssertTrue(app.staticTexts["Waiting to hear from Maya"].exists)
+
+        app.element("family.openCare").tap()
+        XCTAssertTrue(app.element("family.steps").waitForExistence(timeout: 3))
+        XCTAssertTrue(app.element("family.medications").exists)
+        XCTAssertTrue(app.element("family.sleep").exists)
+        XCTAssertTrue(app.element("family.heartRate").exists)
+        attachScreenshot(app, name: "Maya care details")
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        XCTAssertTrue(app.element("family.openCare").waitForExistence(timeout: 3))
+    }
+
+    func testFamilyLandingReflectsCheckIn() throws {
+        let app = launchApp()
+        app.element("onboarding.senior").tap()
+        app.element("senior.checkIn").tap()
+        XCTAssertTrue(app.element("mood.okay").waitForExistence(timeout: 6))
+        app.element("mood.okay").tap()
+        XCTAssertTrue(app.staticTexts["Maya checked in today"].waitForExistence(timeout: 6))
+        XCTAssertFalse(app.staticTexts["Waiting to hear from Maya"].exists)
+        attachScreenshot(app, name: "Family home - checked in")
+    }
+
+    private func attachScreenshot(_ app: XCUIApplication, name: String) {
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
     func testSOSAndDemoResetPath() throws {
         let app = launchApp()
 
@@ -29,6 +76,12 @@ final class CareCompanionDemoUITests: XCTestCase {
 
         XCTAssertTrue(app.element("alerts.title").waitForExistence(timeout: 3))
         XCTAssertTrue(app.element("alerts.sos").exists)
+
+        app.element("tab.home").tap()
+        XCTAssertTrue(app.staticTexts["Maya sent an SOS"].waitForExistence(timeout: 3))
+        attachScreenshot(app, name: "Family home - SOS")
+        app.element("family.status").tap()
+        XCTAssertTrue(app.element("alerts.sos").waitForExistence(timeout: 3))
 
         openDemoMenu(in: app)
         app.element("demo.reset").tap()
@@ -50,6 +103,8 @@ final class CareCompanionDemoUITests: XCTestCase {
 
         XCTAssertTrue(app.element("family.title").waitForExistence(timeout: 3))
         XCTAssertTrue(app.element("family.checkedIn").exists)
+        app.element("family.openCare").tap()
+        XCTAssertTrue(app.element("family.medications").waitForExistence(timeout: 3))
         XCTAssertTrue(app.element("family.medications").exists)
         XCTAssertTrue(app.element("family.steps").exists)
         XCTAssertTrue(app.element("family.sleep").exists)
@@ -59,6 +114,7 @@ final class CareCompanionDemoUITests: XCTestCase {
         app.element("paywall.buy").tap()
         XCTAssertTrue(app.element("insight.full").waitForExistence(timeout: 3))
 
+        app.navigationBars.buttons.element(boundBy: 0).tap()
         app.element("tab.appointments").tap()
         XCTAssertTrue(app.element("appointment.prepare").waitForExistence(timeout: 3))
         app.element("appointment.prepare").tap()

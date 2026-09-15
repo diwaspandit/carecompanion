@@ -1,5 +1,27 @@
 # CareCompanion status
 
+## 2026-09-14 four-profile demo grid (uncommitted)
+
+- Per the user's explicit request, the demo family home now shows four portrait cards in two columns: Maya, Ramesh, Lakshmi, and Hari. Tightened the greeting and card spacing; visual inspection confirms all four cards, the AI entry, footer, and navigation fit on iPhone 17 at its default text size.
+- Maya retains the interactive check-in, care details, and SOS flow. The other cards are labeled "Demo profile" and open native sample-profile sheets with distinct names, ages, cities, and portraits. They do not alter repository seniors, care data, or subscription limits, and are hidden in Live Mode.
+- Added three original fictional portraits to the native asset catalog. Generation prompts, asset paths, and tool provenance: `App/Resources/DEMO_PORTRAITS.md`. All images are bundled for offline use.
+- PASS: simulator build; `swift test` — 54 tests, zero failures.
+- PASS: focused check-in and SOS/reset UI tests. Fixed a test-only ambiguous toolbar selector, then reran the family-entry test successfully: all three sample sheets open/close correctly and Maya's care-detail navigation still works.
+- Preview: `/tmp/carecompanion-four-profiles.png`. Final navigation result: `/tmp/carecompanion-four-profiles-final-ui.xcresult`.
+- No commits created; all family-page work remains uncommitted as requested.
+
+## 2026-09-14 family landing-page simplification (uncommitted)
+
+- Adapted the supplied visual reference into a warm greeting, soft blue/coral landscape shapes, one status summary, a Maya portrait card, a compact AI entry, and the existing bottom navigation.
+- Removed the extra Ramesh card and selection chips from the landing page, keeping the Maya–Diwas demo scope. Tapping Maya or the AI entry opens a native care-detail screen with medications, mood, steps, sleep, resting heart rate, and the existing premium AI/paywall entry.
+- Status reflects shared app state: waiting before check-in, confirmed after check-in, and a prominent SOS state while an emergency is active. The summary opens Alerts, preserving a direct emergency response path. Removed the hardcoded "2 hours ago" and unconditional "Needs attention" detail labels.
+- Bundled an original fictional portrait in `App/Assets.xcassets/MayaPortrait.imageset`. The imagegen prompt and provenance are documented in `App/Resources/README.md`. The portrait needs no network connection.
+- PASS: `swift test` — 54 tests, zero failures.
+- PASS: three focused XCTest UI flows — family entry/detail navigation, senior check-in reflected on family home, and SOS → family home → alerts → demo reset.
+- PASS: rebuilt after an asset-catalog correction and repeated the family entry/detail test. Inspected final screenshot with the portrait visible: `/tmp/carecompanion-family-home.png`. Final result bundle: `/tmp/carecompanion-family-verified-ui.xcresult`.
+- Build recovery: local signing errors were followed by an explicit disk-full failure. Removed only disposable session-created build/download caches, restored about 1.7 GB, and completed the rebuild using the existing package checkouts.
+- The full purchase flow was not rerun. Changes are intentionally uncommitted per the user's instruction.
+
 ## 2026-09-14 senior role label
 
 - Changed the onboarding card title from "For myself" to "For senior" as requested.
