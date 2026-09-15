@@ -24,6 +24,23 @@ import RevenueCat
         return access
     }
 
+    /// Uses the care account ID as the RevenueCat app user, so every family member shares one subscription.
+    func logIn(appUserID: String) async throws -> SubscriptionAccess {
+        let (info, _) = try await Purchases.shared.logIn(appUserID)
+        let access = Self.access(from: info)
+        currentAccess = access
+        return access
+    }
+
+    /// Back to the anonymous device user for demo mode. RevenueCat rejects logOut when already anonymous.
+    func logOut() async throws -> SubscriptionAccess {
+        guard !Purchases.shared.isAnonymous else { return try await refreshAccess() }
+        let info = try await Purchases.shared.logOut()
+        let access = Self.access(from: info)
+        currentAccess = access
+        return access
+    }
+
     func restorePurchases() async throws -> SubscriptionAccess {
         let info = try await Purchases.shared.restorePurchases()
         let access = Self.access(from: info)

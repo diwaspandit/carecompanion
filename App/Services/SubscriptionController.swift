@@ -13,6 +13,8 @@ import Observation
 
     @ObservationIgnored private let service: RevenueCatSubscriptionService?
     @ObservationIgnored private let cache = SubscriptionAccessCache()
+    /// The AppState currently on screen (demo or live). RevenueCat pushes go here.
+    @ObservationIgnored private weak var target: AppState?
 
     var isConfigured: Bool { service != nil }
 
@@ -30,9 +32,10 @@ import Observation
         if let cached = cache.load() {
             apply(cached, to: state)
         }
-        service.onCustomerInfoChanged = { [weak self, weak state] access in
-            guard let self, let state else { return }
-            self.apply(access, to: state)
+        target = state
+        service.onCustomerInfoChanged = { [weak self] access in
+            guard let self, let target = self.target else { return }
+            self.apply(access, to: target)
         }
         await refresh(applyingTo: state)
     }
@@ -41,6 +44,23 @@ import Observation
         guard let service else { return }
         do {
             apply(try await service.refreshAccess(), to: state)
+            lastError = nil
+        } catch {
+            lastError = error.localizedDescription
+        }
+    }
+
+    /// Switches the RevenueCat app user to the live care account, or back to anonymous for demo.
+    func identify(accountID: String?, applyingTo state: AppState) async {
+        guard let service else { return }
+        target = state
+        do {
+            let access = if let accountID {
+                try await service.logIn(appUserID: accountID)
+            } else {
+                try await service.logOut()
+            }
+            apply(access, to: state)
             lastError = nil
         } catch {
             lastError = error.localizedDescription
@@ -60,6 +80,7 @@ import Observation
     }
 
     func apply(_ access: SubscriptionAccess, to state: AppState) {
+        target = state
         state.applySubscriptionAccess(access)
         cache.save(access)
     }

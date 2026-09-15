@@ -28,7 +28,11 @@ struct CareCompanionApp: App {
                 }
                 .onChange(of: scenePhase) { _, phase in
                     guard phase == .active else { return }
-                    Task { await subscriptions.refresh(applyingTo: state) }
+                    Task { await subscriptions.refresh(applyingTo: live.liveState ?? state) }
+                }
+                .onChange(of: live.isLive) { _, _ in
+                    // Subscriptions belong to the family account, so every member shares Plus/Pro.
+                    Task { await subscriptions.identify(accountID: live.liveAccountID, applyingTo: live.liveState ?? state) }
                 }
         }
     }
