@@ -27,38 +27,12 @@ import Supabase
         self.snapshot = try records.snapshot(now: now())
     }
 
-    /// Loads the signed-in user's care account. Throws `.unauthorized` without a session and
-    /// `.invalidState` when the user has not created or joined an account yet.
-    static func load(client: SupabaseClient, now: @escaping () -> Date = Date.init) async throws -> SupabaseCareRepository {
+    /// Loads one care account's data. Membership is resolved by SupabaseCareAccountService.
+    static func load(client: SupabaseClient, accountID: String,
+                     now: @escaping () -> Date = Date.init) async throws -> SupabaseCareRepository {
         do {
-            let session = try await client.auth.session
-            let memberships: [MembershipRow] = try await client.from("account_members")
-                .select("account_id")
-                .eq("profile_id", value: session.user.id)
-                .order("created_at")
-                .limit(1)
-                .execute().value
-            guard let accountID = memberships.first?.accountID else {
-                throw CareServiceError.invalidState("No care account yet")
-            }
             let records = try await fetchRecords(client: client, accountID: accountID, now: now())
             return try SupabaseCareRepository(client: client, accountID: accountID, records: records, now: now)
-        } catch {
-            throw SupabaseErrorMapper.map(error)
-        }
-    }
-
-    static func createAccount(client: SupabaseClient, name: String, role: CareRole) async throws {
-        do {
-            try await client.rpc("create_care_account", params: ["account_name": name, "member_role": role.rawValue]).execute()
-        } catch {
-            throw SupabaseErrorMapper.map(error)
-        }
-    }
-
-    static func joinAccount(client: SupabaseClient, inviteCode: String, role: CareRole) async throws {
-        do {
-            try await client.rpc("join_care_account", params: ["code": inviteCode, "member_role": role.rawValue]).execute()
         } catch {
             throw SupabaseErrorMapper.map(error)
         }
@@ -328,11 +302,6 @@ import Supabase
 }
 
 // MARK: - Write payloads
-
-private struct MembershipRow: Decodable {
-    let accountID: String
-    enum CodingKeys: String, CodingKey { case accountID = "account_id" }
-}
 
 private struct CheckInInsert: Encodable, Sendable {
     let accountID: String, seniorID: String, occurredAt: Date

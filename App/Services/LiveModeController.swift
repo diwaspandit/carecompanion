@@ -50,13 +50,13 @@ import Supabase
 
     func createAccount(name: String, role: CareRole) async {
         guard let client else { return }
-        await run { try await SupabaseCareRepository.createAccount(client: client, name: name, role: role) }
+        await run { try await SupabaseCareAccountService(client: client).createFamily(name: name) }
         await loadAccount(reportMissing: true)
     }
 
     func joinAccount(code: String, role: CareRole) async {
         guard let client else { return }
-        await run { try await SupabaseCareRepository.joinAccount(client: client, inviteCode: code, role: role) }
+        await run { try await SupabaseCareAccountService(client: client).joinFamily(inviteCode: code, role: role) }
         await loadAccount(reportMissing: true)
     }
 
@@ -124,10 +124,12 @@ import Supabase
     private func loadAccount(reportMissing: Bool) async {
         guard let client else { return }
         do {
-            repository = try await SupabaseCareRepository.load(client: client)
-        } catch CareServiceError.invalidState {
-            repository = nil
-            if reportMissing { message = "No care account found for this user." }
+            guard let membership = try await SupabaseCareAccountService(client: client).loadMembership() else {
+                repository = nil
+                if reportMissing { message = "No care account found for this user." }
+                return
+            }
+            repository = membership.repository as? SupabaseCareRepository
         } catch {
             message = error.localizedDescription
         }
