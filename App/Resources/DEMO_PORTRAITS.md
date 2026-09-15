@@ -2,6 +2,26 @@
 
 Generated using the built-in imagegen tool. All subjects are fictional.
 
+## Family relationship cards
+
+The demo grid displays Wife, Ma, Dad, and Princess. Ma reuses MayaPortrait and retains Maya's connected care data; Dad reuses RameshPortrait. Wife and Princess are presentation-only sample profiles, with new bundled portraits generated using the built-in imagegen tool.
+
+### Wife
+
+Asset: `App/Assets.xcassets/WifePortrait.imageset/portrait.png`
+
+Prompt:
+
+Use case: photorealistic-natural. Create one square photorealistic family-app profile portrait of a fictional Nepali woman in her early thirties, dark shoulder-length hair, warm natural smile, casual sage green blouse. Head and upper shoulders centered with generous room for a circular crop. Soft natural window light, plain warm off-white background, realistic skin texture, friendly everyday family photograph. No text, borders, logos, UI, or extra people.
+
+### Princess
+
+Asset: `App/Assets.xcassets/PrincessPortrait.imageset/portrait.png`
+
+Prompt:
+
+Use case: photorealistic-natural. Create one square photorealistic family-app profile portrait of a fictional 9–10-year-old Nepali girl, dark hair in a simple ponytail, cheerful natural smile, age-appropriate casual coral T-shirt. Head and upper shoulders centered with generous room for a circular crop. Soft natural window light, plain warm off-white background, natural everyday family photograph. No makeup, text, borders, logos, UI, or extra people.
+
 ## Ramesh
 
 Asset: `App/Assets.xcassets/RameshPortrait.imageset/portrait.png`

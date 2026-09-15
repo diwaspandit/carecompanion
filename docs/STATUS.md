@@ -1,5 +1,22 @@
 # CareCompanion status
 
+## 2026-09-14 Wife care details (uncommitted)
+
+- Wife now opens a native care-detail screen from the family grid, with portrait, age/location, check-in, medications, mood, steps, sleep, and resting heart rate using the same card and metric styling as Ma.
+- Wife's information is explicitly fictional and independent of Maya's repository state: checked in, no medications scheduled, Good mood, 6,420 steps, 7h 40min sleep, 68 bpm. No additional monitored senior or premium entitlement is created.
+- Ma retains her connected care and AI flow; the demo navigation title now reads "Ma's care". Dad and Princess keep their sample sheets.
+- PASS: simulator build; all 54 unit tests; updated UI navigation test covering Wife's independent values, Ma's care screen, and Dad/Princess sample sheets. Inspected the Wife detail screenshot. Result: `/tmp/carecompanion-wife-details-ui.xcresult`.
+- All edits remain uncommitted on `Dipesh`; no push or merge.
+
+## 2026-09-14 family relationship profiles (uncommitted)
+
+- Renamed and ordered the demo family cards as Wife, Ma, Dad, and Princess. Ma is the family-facing label for Maya's connected care profile; check-in and SOS summary text use the same label in Demo Mode.
+- Wife and Princess have new original fictional portraits, bundled in the asset catalog for offline use. Princess is a 10-year-old sample profile. Ma and Dad use the existing parent portraits. Prompts and asset paths are recorded in `App/Resources/DEMO_PORTRAITS.md`.
+- Sample sheets use the new names and matching ages/portraits. The three sample profiles remain presentation-only; Live Mode and repository care data are unchanged.
+- PASS: iOS Simulator build; `swift test` — 54 tests, zero failures. Check-in and SOS/reset UI tests passed. The family-entry test initially stayed on onboarding after its tap; rerunning it without code changes passed, including all three sample sheets and Ma's care details.
+- Visually verified all four names and portraits in the simulator screenshot: `/tmp/carecompanion-family-roles.png`. Final navigation result: `/tmp/carecompanion-family-roles-final-ui.xcresult`.
+- Work remains local on `Dipesh`; no commit, push, or merge performed for this change.
+
 ## 2026-09-14 four-profile demo grid (uncommitted)
 
 - Per the user's explicit request, the demo family home now shows four portrait cards in two columns: Maya, Ramesh, Lakshmi, and Hari. Tightened the greeting and card spacing; visual inspection confirms all four cards, the AI entry, footer, and navigation fit on iPhone 17 at its default text size.

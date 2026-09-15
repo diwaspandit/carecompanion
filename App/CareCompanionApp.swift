@@ -856,9 +856,11 @@ private struct FamilyHome: View {
         state.hasEmergency ? CareTheme.coral : (state.isCheckedIn ? CareTheme.sageDark : CareTheme.mutedText)
     }
 
+    private var careName: String { live.isLive ? "Maya" : "Ma" }
+
     private var statusTitle: String {
-        if state.hasEmergency { return "Maya sent an SOS" }
-        return state.isCheckedIn ? "Maya checked in today" : "Waiting to hear from Maya"
+        if state.hasEmergency { return "\(careName) sent an SOS" }
+        return state.isCheckedIn ? "\(careName) checked in today" : "Waiting to hear from \(careName)"
     }
 
     private var statusDetail: String {
@@ -930,11 +932,23 @@ private struct FamilyHome: View {
             .accessibilityIdentifier("family.status")
 
             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
+                if !live.isLive {
+                    NavigationLink {
+                        WifeCareDetailView()
+                    } label: {
+                        FamilyProfileTile(name: "Wife", imageName: "WifePortrait",
+                                          status: "Demo profile", statusColor: CareTheme.mutedText,
+                                          statusIcon: "person.fill")
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("family.openWifeCare")
+                }
+
                 NavigationLink {
                     FamilyCareDetailView()
                 } label: {
                     FamilyProfileTile(
-                        name: "Maya", imageName: "MayaPortrait",
+                        name: careName, imageName: "MayaPortrait",
                         status: state.hasEmergency ? "SOS needs attention" : (state.isCheckedIn ? "Checked in today" : "No check-in yet"),
                         statusColor: statusColor,
                         statusIcon: state.hasEmergency ? "exclamationmark" : (state.isCheckedIn ? "checkmark" : "clock"),
@@ -945,16 +959,8 @@ private struct FamilyHome: View {
                 .accessibilityIdentifier("family.openCare")
 
                 if !live.isLive {
-                    ForEach(SampleFamilyProfile.examples) { profile in
-                        Button {
-                            selectedSampleProfile = profile
-                        } label: {
-                            FamilyProfileTile(name: profile.name, imageName: profile.imageName,
-                                              status: "Demo profile", statusColor: CareTheme.mutedText,
-                                              statusIcon: "person.fill")
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityIdentifier("family.sample.\(profile.id)")
+                    ForEach(SampleFamilyProfile.additionalProfiles) { profile in
+                        sampleProfileButton(profile)
                     }
                 }
             }
@@ -997,6 +1003,18 @@ private struct FamilyHome: View {
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
         }
+    }
+
+    private func sampleProfileButton(_ profile: SampleFamilyProfile) -> some View {
+        Button {
+            selectedSampleProfile = profile
+        } label: {
+            FamilyProfileTile(name: profile.name, imageName: profile.imageName,
+                              status: "Demo profile", statusColor: CareTheme.mutedText,
+                              statusIcon: "person.fill")
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("family.sample.\(profile.id)")
     }
 }
 
@@ -1050,12 +1068,12 @@ private struct SampleFamilyProfile: Identifiable, Sendable {
     let age: Int
     let city: String
     var id: String { name.lowercased() }
-    var imageName: String { "\(name)Portrait" }
+    let imageName: String
 
-    static let examples = [
-        SampleFamilyProfile(name: "Ramesh", age: 76, city: "Kathmandu, Nepal"),
-        SampleFamilyProfile(name: "Lakshmi", age: 71, city: "Pokhara, Nepal"),
-        SampleFamilyProfile(name: "Hari", age: 73, city: "Lalitpur, Nepal")
+    static let wife = SampleFamilyProfile(name: "Wife", age: 32, city: "Austin, Texas", imageName: "WifePortrait")
+    static let additionalProfiles = [
+        SampleFamilyProfile(name: "Dad", age: 76, city: "Kathmandu, Nepal", imageName: "RameshPortrait"),
+        SampleFamilyProfile(name: "Princess", age: 10, city: "Austin, Texas", imageName: "PrincessPortrait")
     ]
 }
 
@@ -1083,7 +1101,7 @@ private struct SampleFamilyProfileView: View {
                     Text("A sample family profile for this demo.")
                         .font(.subheadline)
                         .foregroundStyle(CareTheme.mutedText)
-                    Text("Maya's profile contains the interactive care demo.")
+                    Text("Open Ma's profile for the interactive care demo.")
                         .font(.caption)
                         .foregroundStyle(CareTheme.mutedText)
                 }
@@ -1106,6 +1124,7 @@ private struct SampleFamilyProfileView: View {
 
 private struct FamilyCareDetailView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(LiveModeController.self) private var live
 
     var body: some View {
         ScrollView {
@@ -1116,7 +1135,70 @@ private struct FamilyCareDetailView: View {
             .padding(20)
         }
         .background(CareTheme.background)
-        .navigationTitle("Maya's care")
+        .navigationTitle(live.isLive ? "Maya's care" : "Ma's care")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+/// An offline sample, independent of Maya's repository data and premium insights.
+private struct WifeCareDetailView: View {
+    private let profile = SampleFamilyProfile.wife
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 20) {
+                LovableCard {
+                    VStack(spacing: 16) {
+                        HStack(spacing: 14) {
+                            Image(profile.imageName)
+                                .resizable()
+                                .scaledToFill()
+                                .frame(width: 56, height: 56)
+                                .clipShape(Circle())
+                                .accessibilityHidden(true)
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(profile.name)
+                                    .font(.system(size: 20, weight: .black))
+                                    .accessibilityIdentifier("wife.name")
+                                Text("\(profile.age) years · \(profile.city)")
+                                    .font(.system(size: 13))
+                                    .foregroundStyle(CareTheme.secondaryText)
+                            }
+                            Spacer(minLength: 0)
+                        }
+
+                        HStack {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundStyle(CareTheme.sageDark)
+                            Text("Checked in today")
+                                .font(.system(size: 15, weight: .black))
+                                .accessibilityIdentifier("wife.checkedIn")
+                            Spacer()
+                            Text("🙂").font(.system(size: 24))
+                        }
+                        .padding(.horizontal, 16)
+                        .frame(height: 54)
+                        .background(CareTheme.grayPill, in: Capsule())
+
+                        LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
+                            SmallMetric(title: "Medications", value: "None scheduled", icon: "capsule", color: CareTheme.gold, identifier: "wife.medications")
+                            SmallMetric(title: "Mood today", value: "Good", icon: "face.smiling", color: CareTheme.sage, identifier: "wife.mood")
+                            SmallMetric(title: "Steps", value: "6,420", icon: "shoeprints.fill", color: CareTheme.blue, identifier: "wife.steps")
+                            SmallMetric(title: "Sleep", value: "7h 40min", icon: "moon", color: CareTheme.blue, identifier: "wife.sleep")
+                            SmallMetric(title: "Resting heart rate", value: "68 bpm", icon: "heart", color: CareTheme.coral, identifier: "wife.heartRate")
+                        }
+
+                        Text("Demo information · Check-in, mood, and health values are fictional. Not synced from Apple Health.")
+                            .font(.system(size: 11))
+                            .foregroundStyle(CareTheme.mutedText)
+                            .accessibilityIdentifier("wife.demoDataNotice")
+                    }
+                }
+            }
+            .padding(20)
+        }
+        .background(CareTheme.background)
+        .navigationTitle("Wife's care")
         .navigationBarTitleDisplayMode(.inline)
     }
 }

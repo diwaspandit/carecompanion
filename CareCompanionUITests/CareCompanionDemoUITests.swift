@@ -21,12 +21,26 @@ final class CareCompanionDemoUITests: XCTestCase {
         let app = launchApp()
         app.element("onboarding.family").tap()
         XCTAssertTrue(app.element("family.title").waitForExistence(timeout: 6))
-        XCTAssertTrue(app.staticTexts["Waiting to hear from Maya"].exists)
+        XCTAssertTrue(app.staticTexts["Waiting to hear from Ma"].exists)
         XCTAssertTrue(app.element("family.openCare").isHittable)
         XCTAssertFalse(app.element("family.steps").exists)
         attachScreenshot(app, name: "Family home - initial")
 
-        for name in ["Ramesh", "Lakshmi", "Hari"] {
+        app.element("family.openWifeCare").tap()
+        XCTAssertTrue(app.element("wife.name").waitForExistence(timeout: 3))
+        XCTAssertEqual(app.element("wife.name").label, "Wife")
+        XCTAssertEqual(app.element("wife.steps").label, "6,420")
+        XCTAssertTrue(app.element("wife.checkedIn").exists)
+        XCTAssertTrue(app.element("wife.medications").exists)
+        XCTAssertTrue(app.element("wife.mood").exists)
+        XCTAssertTrue(app.element("wife.sleep").exists)
+        XCTAssertTrue(app.element("wife.heartRate").exists)
+        XCTAssertTrue(app.element("wife.demoDataNotice").exists)
+        XCTAssertFalse(app.element("family.medications").exists)
+        attachScreenshot(app, name: "Wife care details")
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+
+        for name in ["Dad", "Princess"] {
             let card = app.element("family.sample.\(name.lowercased())")
             XCTAssertTrue(card.isHittable)
             card.tap()
@@ -34,7 +48,7 @@ final class CareCompanionDemoUITests: XCTestCase {
             XCTAssertEqual(app.element("sampleProfile.name").label, name)
             app.buttons["sampleProfile.done"].tap()
         }
-        XCTAssertTrue(app.staticTexts["Waiting to hear from Maya"].exists)
+        XCTAssertTrue(app.staticTexts["Waiting to hear from Ma"].exists)
 
         app.element("family.openCare").tap()
         XCTAssertTrue(app.element("family.steps").waitForExistence(timeout: 3))
@@ -52,8 +66,8 @@ final class CareCompanionDemoUITests: XCTestCase {
         app.element("senior.checkIn").tap()
         XCTAssertTrue(app.element("mood.okay").waitForExistence(timeout: 6))
         app.element("mood.okay").tap()
-        XCTAssertTrue(app.staticTexts["Maya checked in today"].waitForExistence(timeout: 6))
-        XCTAssertFalse(app.staticTexts["Waiting to hear from Maya"].exists)
+        XCTAssertTrue(app.staticTexts["Ma checked in today"].waitForExistence(timeout: 6))
+        XCTAssertFalse(app.staticTexts["Waiting to hear from Ma"].exists)
         attachScreenshot(app, name: "Family home - checked in")
     }
 
@@ -78,7 +92,7 @@ final class CareCompanionDemoUITests: XCTestCase {
         XCTAssertTrue(app.element("alerts.sos").exists)
 
         app.element("tab.home").tap()
-        XCTAssertTrue(app.staticTexts["Maya sent an SOS"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.staticTexts["Ma sent an SOS"].waitForExistence(timeout: 3))
         attachScreenshot(app, name: "Family home - SOS")
         app.element("family.status").tap()
         XCTAssertTrue(app.element("alerts.sos").waitForExistence(timeout: 3))
