@@ -105,13 +105,18 @@ now because it isn't self-serve or demoable end-to-end.
   and enterprise with/without an explicit seat count (`Int.max` fallback) —
   `Tests/CareCoreTests/CareCoreTests.swift`, "Phase 3 Plan Tier Tests".
 
-## Known limitation
+## Subscription identity
 
-The hidden `#if DEBUG` "Live Supabase" developer screen (`App/Features/LiveModeView.swift`) swaps
-`AppState` for a second instance (`LiveModeController.liveState`) when a developer goes live.
-`SubscriptionController` currently applies entitlement updates to the base demo `AppState` only, so
-if a developer is simultaneously in Live Supabase mode, `AppState.subscription` on the live state
-instance won't reflect a real purchase made in that session. This only affects the hidden developer
-flow, not the main demo path (SOS → check-in → mood → paywall → AI insight), and is a reasonable
-follow-up for the phase that unifies demo/live `AppState` lifecycles rather than something to
-special-case here.
+Subscriptions belong to the **family care account**, not the individual login. When the app goes
+live, `SubscriptionController.identify(accountID:applyingTo:)` calls `Purchases.logIn` with the care
+account ID, so every member of the family (a second caregiver on another phone too) shares Plus/Pro.
+Returning to demo or signing out calls `Purchases.logOut` (skipped when already anonymous, which
+RevenueCat rejects). Entitlement pushes, foreground refreshes and restores apply to whichever
+`AppState` is on screen, demo or live.
+
+`subscription_statuses` in Supabase is not written by the app: a client write could forge an
+entitlement. Mirroring entitlements into the database needs a RevenueCat webhook to a server-side
+function, tracked as follow-up work.
+
+UI tests (`--ui-testing`) skip RevenueCat configuration even when `Secrets.xcconfig` has a key, so
+they always use the offline Test Store fallback paywall.

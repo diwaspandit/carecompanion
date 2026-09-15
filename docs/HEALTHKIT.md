@@ -158,8 +158,13 @@ NSHealthUpdateUsageDescription:
 - Source labels prevent confusion between demo and real data
 - Users can revoke access anytime in iOS Settings → Privacy → Health
 
+### Senior Device Link
+- Only the senior's own linked login can sync (`AppState.healthSyncEligibility == .allowed`)
+- A family member's phone shows why sync is unavailable and never prompts for HealthKit access
+- Enforced server-side too: only the linked login can write `healthkit` snapshots (see docs/DATABASE.md, "Senior device link")
+
 ### Demo Mode
-- HealthKit sync is disabled in demo mode
+- HealthKit sync is disabled in demo mode (the demo `AppState` has no health provider)
 - Demo health data is clearly labeled with `source = "Demo data"`
 - No permission requests shown in demo mode
 - Ensures demo remains fully offline
@@ -278,7 +283,8 @@ func testHealthPermissionFlow() {
 
 ## Future Enhancements
 
-### Incremental Sync (Phase 5+)
+### Incremental Sync (Phase 7)
+- Deferred: re-fetching seven days is idempotent because snapshots upsert on (senior, date, source)
 - Add `HKAnchoredObjectQuery` for delta sync
 - Store sync anchors for efficient data retrieval
 - Notify user when significant health changes detected

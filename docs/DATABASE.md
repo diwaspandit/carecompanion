@@ -52,18 +52,22 @@ Rule: **a signed-in user can read and write only rows whose `account_id` is an a
 | `is_account_member(account_id)` | Membership check without recursive policies on `account_members` |
 | `senior_in_account(senior_id, account_id)` | Stops a member of account A from attaching account B's senior to A |
 | `shares_account_with(profile_id)` | Lets co-members see each other's display names |
+| `is_linked_senior(senior_id)` | True when the signed-in login is the senior's own linked login |
 
 | Table | select | insert | update | delete |
 | --- | --- | --- | --- | --- |
 | `profiles` | self or co-member | trigger only | self | — |
 | `care_accounts` | members | `create_care_account()` only | members | — |
 | `account_members` | members | `create_care_account()` / `join_care_account()` only | — | self (leave) |
-| `account_seniors` | members | members | members | — (soft delete) |
+| `account_seniors` | members | members (never with `profile_id`) | members (`profile_id` only via `claim_senior_profile()`) | — (soft delete) |
 | senior-scoped care tables | members | members + senior in account | members + senior in account | `appointments` only |
+| `health_snapshots` with `source = 'healthkit'` | members | also linked senior only | also linked senior only | — |
 | `subscription_statuses` | members or purchaser | server only | server only | — |
 | `audit_events` | members | members, as self | — | — |
 
 `Supabase/tests/rls_test.sql` checks two families. It asserts that the outsider cannot read, insert, attach a foreign senior, or acknowledge alerts across accounts, that anon is locked out, that a second open SOS is rejected, and that bogus invite codes fail. To confirm the test is not vacuous, weakening a read policy to `using (true)` makes it fail.
+
+`Supabase/tests/senior_link_test.sql` checks the senior device link (migration `20260915000003`): a family member or outsider cannot claim a senior or set `profile_id` directly, a senior member can claim once (idempotently), a second senior cannot take over a linked record, and only the linked login can insert or update `healthkit` snapshots.
 
 ```sh
 Supabase/tests/run_local.sh   # needs Homebrew postgresql; touches nothing remote
@@ -86,6 +90,7 @@ sequenceDiagram
     DB-->>Diwas: invite_code
     Maya->>Auth: magic link sign-in
     Maya->>DB: rpc join_care_account(invite_code, "senior")
+    Maya->>DB: rpc claim_senior_profile(Maya's senior id)
     Diwas->>RT: subscribe care-account-<id> (8 tables, account_id filter)
     Maya->>DB: insert check_ins
     DB-->>RT: postgres_changes (RLS-filtered)
@@ -125,8 +130,12 @@ To check realtime by hand in a Debug build:
 2. Sign in as the family test user, add starter medications, tap "Use live data in the app" and choose "I am a family member".
 3. Write as the senior user (e.g. a `medication_events` row). The dashboard's medication count updates without interaction.
 
+## Senior device link
+
+A family member's phone must never store its own Apple Health data as the senior's. A member who joined as `senior` calls `claim_senior_profile(senior_id)` to set `account_seniors.profile_id` to their login. A trigger rejects any other change to `profile_id`, and restrictive policies on `health_snapshots` only let that linked login write `healthkit` rows. The app mirrors this with `AppState.healthSyncEligibility`, so a family device never asks for HealthKit permission or syncs. Until Phase 5 onboarding, the link is made from Developer → Live Supabase → "I am <senior>".
+
 ## Not in this phase
 
 - Production mode is reachable only through the Debug-only developer screen. The app still boots `DemoCareRepository`. User-facing sign-in, account creation and invite screens belong to Phase 5.
-- `subscription_statuses` is written by a RevenueCat webhook in Phase 3.
+- `subscription_statuses` is still unwritten. It must come from a RevenueCat webhook (server side), never from the app, because a client write could forge entitlements.
 - Live AI writes to `care_insights` / `appointment_ai_preps` arrive in Phase 6.

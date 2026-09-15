@@ -18,3 +18,8 @@
 - 2026-09-14 (Phase 2): Medication "taken" is derived from the latest `medication_events` row on the senior's local day, not stored as a flag.
 - 2026-09-14 (Phase 2): Supabase host is stored without the scheme in xcconfig, because `//` starts a comment there. Custom keys go through `Config/Info.plist`, since generated Info.plist ignores custom `INFOPLIST_KEY_*`.
 - 2026-09-14 (Phase 2): Production mode is not wired into app startup yet. The demo stays the only launch path until Phase 5 provides sign-in and account onboarding UI.
+- 2026-09-15 (Phase 0–4 gap fixes): Apple Health is tied to a senior device link (`account_seniors.profile_id`, set only by `claim_senior_profile`), enforced by a trigger, restrictive `health_snapshots` policies and `AppState.healthSyncEligibility`. Without it, a family member opening Health permissions would store their own health data as the senior's.
+- 2026-09-15: Demo mode has no HealthKit provider at all, rather than a runtime toggle. The plan allows a development toggle, but none is needed while the Live Supabase developer screen exists.
+- 2026-09-15: Incremental (anchored) HealthKit sync deferred to Phase 7. The seven-day re-fetch is idempotent (upsert on senior, date, source) and cheap for three metrics.
+- 2026-09-15: RevenueCat app user ID is the care account ID, so the whole family shares a subscription. `subscription_statuses` is left for a server-side RevenueCat webhook; writing it from the client would let a phone forge entitlements.
+- 2026-09-15: `--ui-testing` skips RevenueCat configuration so the demo UI tests stay offline and deterministic even with real secrets on the machine.

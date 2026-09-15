@@ -1,5 +1,35 @@
 # CareCompanion status
 
+## 2026-09-15 Phase 0–4 gap fixes (branch `phase-5-new`)
+
+An audit of Phases 0–4 on `dev` before Phase 5 found production gaps. `origin/phase-5` held no Phase 5 work (its tip `ee31530` is a Phase 4 docs commit already in `dev`).
+
+**Fixed:**
+- 🔴 Apple Health could land on the wrong person: sync wrote the current phone's Health data into the selected senior with no identity check, and the family Profile offered Health permissions. Now a senior member links their login with `claim_senior_profile` (migration `20260915000003_senior_device_link.sql`). A trigger blocks any other `profile_id` change, restrictive policies let only the linked login write `healthkit` snapshots, and `AppState.healthSyncEligibility` stops sync, permission prompts and background sync on any other device. Developer → Live Supabase has an "I am <senior>" link until Phase 5 onboarding.
+- 🔴 HealthKit ran in demo mode: the demo `AppState` was built with `HealthKitHealthDataProvider` and started automatic sync at launch. The Phase 4 section below claimed "healthProvider remains nil"; that was false until this fix. The demo now has no health provider, and its Health sheet explains sync is off.
+- Health Timeline, dashboard card and family Profile health stats showed hard-coded numbers ("6.7h", "67–74 bpm", "69 bpm", fake chart shapes) and labelled anything non-HealthKit as demo. `HealthTrend` now computes them from snapshots, preferring HealthKit over manual over demo for the same day, with per-origin labels.
+- RevenueCat purchases belonged to an anonymous device user and only reached the demo `AppState`. Going live now logs in with the care account ID (family-shared subscription). Returning to demo logs out, and entitlement updates apply to the state on screen.
+- UI tests failed all three demo runs whenever a real RevenueCat key was in `Secrets.xcconfig` (they got the network paywall, not `paywall.buy`). `--ui-testing` now skips RevenueCat.
+
+**Checked, no change:**
+- Senior Profile "Upgrade to Plus" (reported open below): not reproducible. Tapped twice on the iPhone 17 simulator and the RevenueCat paywall opened both times; the sheet appears a moment after the tap, so a screenshot taken immediately shows only the pressed button. The paywall now shows a "Continue" offer, so an offering and paywall exist in the RevenueCat dashboard.
+
+**Verification:**
+- PASS: `swift test` (Xcode toolchain) — 68 XCTest cases, 0 failures (14 new in `HealthSafetyTests.swift`).
+- PASS: `Supabase/tests/run_local.sh` — `RLS TESTS PASSED`, `SENIOR LINK TESTS PASSED`. The new test failed before the migration existed.
+- PASS: iOS Simulator build (`xcodebuild … ARCHS=arm64 ONLY_ACTIVE_ARCH=YES EXCLUDED_ARCHS=x86_64 build`).
+- PASS: `xcodebuild test -only-testing:CareCompanionUITests` on iPhone 17 (iOS 26.5) — `testDemoPathRunOne/Two/Three` and `testSOSAndDemoResetPath` all pass. First successful UI test run; the Phase 0 sandbox could not start the runner.
+- PASS (manual, simulator): demo Senior Home → Health sheet shows "Apple Health sync is off in the demo" with no permission button.
+- NOT RUN: the new migration is not applied to the live Supabase project, and the senior link, family-device block and RevenueCat `logIn` have not been exercised end-to-end against live services.
+
+**Still open (not code in this pass):**
+- Apply `20260915000003_senior_device_link.sql` to the live project (SQL Editor).
+- A RevenueCat Test Store purchase end-to-end, now that a paywall appears configured.
+- `subscription_statuses` needs a server-side RevenueCat webhook, not a client write.
+- Anchored incremental HealthKit sync, deferred to Phase 7 (docs/DECISIONS.md).
+- HealthKit revoke/partial-permission behaviour untested on device.
+- Everything in Phase 5 (onboarding, profile, medications, mood notes, appointments, alerts, dashboard, settings, accessibility, localization), including session restore at launch.
+
 Updated: 2026-09-14. `phase-3-sponsor` merges `dev` (which already had Phase 4 Apple Health sync merged in) with Phase 3 RevenueCat sponsor integration. Phase 4 notes come first, then Phase 3, then Phase 2.
 
 ## 2026-09-14 Merge: `dev` into `phase-3-sponsor`
@@ -160,7 +190,7 @@ products, an offering, and a published paywall in the RevenueCat dashboard (see
 - ✅ Read-only HealthKit integration (steps, sleep, resting heart rate)
 - ✅ Permission management with graceful handling of all states
 - ✅ Source labeling distinguishes HealthKit data from demo data
-- ✅ Demo mode unchanged (healthProvider remains nil)
+- ⚠️ Demo mode unchanged (healthProvider remains nil) — **incorrect when written**: the demo `AppState` did get the HealthKit provider. Fixed 2026-09-15 (see top).
 - ✅ Privacy-first design with clear user explanations
 - ✅ All health data processing stays local (no external servers)
 

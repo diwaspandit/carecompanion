@@ -187,18 +187,18 @@ sequenceDiagram
 
 **Deliverables**
 
-- [ ] Confirm the current senior-to-family flow runs from cold launch through onboarding, check-in, mood, family dashboard, premium insight, appointment prep, SOS and reset.
-- [ ] Add or update UI tests for the deterministic demo path once the app target has a UI test bundle.
-- [ ] Keep `DemoCareRepository`, `MockAIService`, local subscription fallback and hidden demo reset working offline.
-- [ ] Make visible copy clear when data is seeded demo data.
-- [ ] Update `docs/STATUS.md` with exact build, test and simulator verification commands.
+- [x] Confirm the current senior-to-family flow runs from cold launch through onboarding, check-in, mood, family dashboard, premium insight, appointment prep, SOS and reset.
+- [x] Add or update UI tests for the deterministic demo path once the app target has a UI test bundle.
+- [x] Keep `DemoCareRepository`, `MockAIService`, local subscription fallback and hidden demo reset working offline.
+- [x] Make visible copy clear when data is seeded demo data.
+- [x] Update `docs/STATUS.md` with exact build, test and simulator verification commands.
 - [ ] Commit stable checkpoint: `chore: stabilize demo baseline`.
 
 **Exit Criteria**
 
-- [ ] `swift test` passes.
-- [ ] iOS simulator build passes.
-- [ ] Full 90-second demo succeeds three consecutive times.
+- [x] `swift test` passes.
+- [x] iOS simulator build passes.
+- [x] Full 90-second demo succeeds three consecutive times.
 - [ ] No critical demo action is visual-only.
 
 ## Phase 1: Production Architecture Hardening
@@ -219,18 +219,18 @@ sequenceDiagram
 
 **Steps**
 
-- [ ] Define explicit protocol methods for check-ins, mood entries, medication events, health snapshots, appointments, alerts, insight storage and account membership.
-- [ ] Add typed service errors: offline, unauthorized, premiumRequired, healthPermissionDenied, vendorUnavailable and invalidState.
+- [x] Define explicit protocol methods for check-ins, mood entries, medication events, health snapshots, appointments, alerts, insight storage and account membership.
+- [x] Add typed service errors: offline, unauthorized, premiumRequired, healthPermissionDenied, vendorUnavailable and invalidState.
 - [ ] Add view-model or state actions for every user intent currently handled directly inside SwiftUI.
-- [ ] Keep demo implementations deterministic and synchronous where possible, with async method signatures matching production services.
-- [ ] Test each service boundary with demo implementations and failure cases.
-- [ ] Commit stable checkpoint: `refactor: harden care service boundaries`.
+- [x] Keep demo implementations deterministic and synchronous where possible, with async method signatures matching production services.
+- [x] Test each service boundary with demo implementations and failure cases.
+- [x] Commit stable checkpoint: `refactor: harden care service boundaries`.
 
 **Exit Criteria**
 
-- [ ] Views depend on AppState/view models and protocols, not Supabase, RevenueCat, HealthKit or AI vendors.
-- [ ] Demo mode behavior is unchanged.
-- [ ] Tests cover premium denial, offline fallback and reset.
+- [x] Views depend on AppState/view models and protocols, not Supabase, RevenueCat, HealthKit or AI vendors.
+- [x] Demo mode behavior is unchanged.
+- [x] Tests cover premium denial, offline fallback and reset.
 
 ## Phase 2: Database And Account Information Flow
 
@@ -247,21 +247,21 @@ sequenceDiagram
 
 **Steps**
 
-- [ ] Create schema for `profiles`, `care_accounts`, `account_members`, `account_seniors`, `check_ins`, `mood_entries`, `medications`, `medication_events`, `health_snapshots`, `appointments`, `alerts`, `care_insights`, `appointment_ai_preps`, `subscription_statuses` and `audit_events`.
-- [ ] Add RLS policies that require membership in the owning `care_account_id`.
-- [ ] Add indexes for account feed loading, senior dashboard loading, realtime updates and latest health snapshot queries.
-- [ ] Implement `SupabaseCareRepository` behind `CareRepository`.
-- [ ] Add auth bootstrap for email or magic-link sign-in, plus demo-mode bypass.
-- [ ] Add realtime subscriptions for check-ins, medication events, alerts and appointment prep updates.
-- [ ] Document schema, RLS policy intent and account data flow in `docs/DATABASE.md`.
-- [ ] Commit stable checkpoint: `feat: add supabase care repository`.
+- [x] Create schema for `profiles`, `care_accounts`, `account_members`, `account_seniors`, `check_ins`, `mood_entries`, `medications`, `medication_events`, `health_snapshots`, `appointments`, `alerts`, `care_insights`, `appointment_ai_preps`, `subscription_statuses` and `audit_events`.
+- [x] Add RLS policies that require membership in the owning `care_account_id`.
+- [x] Add indexes for account feed loading, senior dashboard loading, realtime updates and latest health snapshot queries.
+- [x] Implement `SupabaseCareRepository` behind `CareRepository`.
+- [x] Add auth bootstrap for email or magic-link sign-in, plus demo-mode bypass.
+- [x] Add realtime subscriptions for check-ins, medication events, alerts and appointment prep updates.
+- [x] Document schema, RLS policy intent and account data flow in `docs/DATABASE.md`.
+- [x] Commit stable checkpoint: `feat: add supabase care repository`.
 
 **Exit Criteria**
 
-- [ ] Maya and Diwas can share one account in production mode.
-- [ ] Cross-account reads are denied by RLS.
-- [ ] Realtime updates refresh the family dashboard without restarting the app.
-- [ ] Demo mode still runs when Supabase is unreachable.
+- [x] Maya and Diwas can share one account in production mode.
+- [x] Cross-account reads are denied by RLS.
+- [x] Realtime updates refresh the family dashboard without restarting the app.
+- [x] Demo mode still runs when Supabase is unreachable.
 
 ## Phase 3: Sponsor Integration With RevenueCat
 
@@ -299,7 +299,7 @@ rationale and the recommended design if Enterprise becomes real (fixed seat-tier
 - [x] Keep SOS, check-ins, mood, medications, basic dashboard and manual appointments free.
 - [x] Cache last known entitlements locally for graceful app startup, then refresh from RevenueCat.
 - [x] Document dashboard setup, Test Store verification and entitlement mapping in `docs/REVENUECAT.md`.
-- [ ] Commit stable checkpoint: `feat: integrate revenuecat subscriptions`.
+- [x] Commit stable checkpoint: `feat: integrate revenuecat subscriptions`.
 
 **Exit Criteria**
 
@@ -325,21 +325,22 @@ rationale and the recommended design if Enterprise becomes real (fixed seat-tier
 
 **Steps**
 
-- [ ] Add HealthKit capability to the app target.
-- [ ] Request read permissions only for required types: step count, sleep analysis and resting heart rate.
-- [ ] Explain permissions in clear user copy before showing the system prompt.
-- [ ] Implement anchored queries for incremental sync.
-- [ ] Normalize raw HealthKit samples into `health_snapshots` with `source = healthkit`.
+- [x] Add HealthKit capability to the app target.
+- [x] Request read permissions only for required types: step count, sleep analysis and resting heart rate.
+- [x] Explain permissions in clear user copy before showing the system prompt.
+- [ ] Implement anchored queries for incremental sync. *(deferred to Phase 7: the seven-day re-fetch is idempotent — see docs/DECISIONS.md)*
+- [x] Normalize raw HealthKit samples into `health_snapshots` with `source = healthkit`.
 - [ ] Store permission state and latest sync status without storing unnecessary raw samples.
 - [ ] Handle denied, revoked and partial permissions gracefully.
-- [ ] Prevent HealthKit sync in demo mode unless explicitly using a development toggle.
-- [ ] Document permission types, privacy behavior, revocation behavior and test steps in `docs/HEALTHKIT.md`.
-- [ ] Commit stable checkpoint: `feat: sync apple health metrics`.
+- [x] Only the senior's own linked device may sync HealthKit data into their snapshots (added 2026-09-15; enforced in RLS and `AppState.healthSyncEligibility`).
+- [x] Prevent HealthKit sync in demo mode unless explicitly using a development toggle.
+- [x] Document permission types, privacy behavior, revocation behavior and test steps in `docs/HEALTHKIT.md`.
+- [x] Commit stable checkpoint: `feat: sync apple health metrics`.
 
 **Exit Criteria**
 
 - [ ] User can grant and revoke permissions without breaking the app.
-- [ ] Health dashboard distinguishes demo, manual and HealthKit-sourced values.
+- [x] Health dashboard distinguishes demo, manual and HealthKit-sourced values.
 - [ ] Sync failures show recoverable UI, not broken dashboards.
 - [ ] AI context uses health trends as observations only and never diagnoses.
 
