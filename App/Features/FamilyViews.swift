@@ -500,12 +500,14 @@ private struct SeniorSummaryCard: View {
                     SeniorAvatar(name: summary.senior.name, initials: summary.initials, color: color, size: 52)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(summary.senior.name).font(.system(size: 20, weight: .black)).foregroundStyle(CareTheme.ink)
-                            .lineLimit(1).minimumScaleFactor(0.75)
-                        Text(subtitle).font(.system(size: 13)).foregroundStyle(CareTheme.secondaryText)
                             .lineLimit(2)
+                        Text(subtitle).font(.system(size: 13)).foregroundStyle(CareTheme.secondaryText)
                     }
+                    .fixedSize(horizontal: false, vertical: true)
+                    .layoutPriority(1)
                     Spacer()
                     PlainPill(text: status.text, icon: "circle.fill", color: status.color, fill: status.fill)
+                        .fixedSize()
                 }
                 HStack {
                     Image(systemName: "clock")
