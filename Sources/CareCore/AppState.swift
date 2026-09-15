@@ -18,6 +18,8 @@ import Observation
     public var healthSyncStatus: SyncStatus = SyncStatus()
     /// Signed-in login in production; nil in demo mode.
     public let currentProfileID: String?
+    /// Real account data. Production hides demo-only controls (role switching, demo menu).
+    public let isProduction: Bool
     @ObservationIgnored public var healthProvider: (any HealthDataProvider)?
     @ObservationIgnored private let repository: any CareRepository
     @ObservationIgnored private let now: () -> Date
@@ -26,11 +28,13 @@ import Observation
         repository: any CareRepository,
         healthProvider: (any HealthDataProvider)? = nil,
         currentProfileID: String? = nil,
+        isProduction: Bool = false,
         now: @escaping () -> Date = { DemoCareRepository.referenceDate }
     ) {
         self.repository = repository
         self.healthProvider = healthProvider
         self.currentProfileID = currentProfileID
+        self.isProduction = isProduction
         self.now = now
         snapshot = repository.snapshot
         selectedSeniorID = repository.snapshot.seniors.first?.id ?? ""
@@ -60,6 +64,10 @@ import Observation
         screen = newRole == .senior ? .seniorHome : .familyDashboard
         seniorTab = .home
         familyTab = hasEmergency ? .emergency : .dashboard
+    }
+    /// Production entry: the role comes from the account membership, not a role-choice screen.
+    public func enterAsMember(role: CareRole) {
+        chooseRole(role)
     }
     public func switchToSenior(tab: SeniorTab = .home) {
         role = .senior
