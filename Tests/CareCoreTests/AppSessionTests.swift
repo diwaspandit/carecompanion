@@ -23,3 +23,168 @@ import XCTest
         XCTAssertEqual(state.seniorTab, .home)
     }
 }
+
+@MainActor final class TestClock {
+    var now = Date(timeIntervalSince1970: 1_000)
+}
+
+@MainActor final class AppSessionLaunchTests: XCTestCase {
+    private let clock = TestClock()
+
+    private func session(auth: FakeAuthSessionService? = FakeAuthSessionService(),
+                         accounts: FakeCareAccountService? = FakeCareAccountService(),
+                         isUITesting: Bool = false) -> AppSession {
+        AppSession(auth: auth, accounts: accounts, demoState: AppState(repository: DemoCareRepository()),
+                   isUITesting: isUITesting, now: { [clock] in clock.now })
+    }
+
+    private func completeFamily() -> (FakeAuthSessionService, FakeCareAccountService) {
+        let auth = FakeAuthSessionService(state: .signedIn(AuthenticatedUser(id: Fixture.diwasID, email: "diwas@example.com")))
+        let accounts = FakeCareAccountService()
+        accounts.profile = MemberProfile(displayName: "Diwas", city: "Austin")
+        accounts.role = .family
+        accounts.seniors = [Fixture.maya()]
+        return (auth, accounts)
+    }
+
+    func testUITestingStartsInDemo() async {
+        let session = session(isUITesting: true)
+        await session.start()
+        XCTAssertEqual(session.phase, .demo)
+        XCTAssertFalse(session.activeState.isProduction)
+    }
+
+    func testWithoutSupabaseStartsAtWelcomeWithoutSignIn() async {
+        let session = session(auth: nil, accounts: nil)
+        await session.start()
+        XCTAssertEqual(session.phase, .welcome)
+        XCTAssertFalse(session.isSignInAvailable)
+    }
+
+    func testNoSavedSessionShowsWelcome() async {
+        let session = session()
+        await session.start()
+        XCTAssertEqual(session.phase, .welcome)
+        XCTAssertTrue(session.isSignInAvailable)
+    }
+
+    func testRestoredCompleteFamilyIsReadyWithProductionState() async {
+        let (auth, accounts) = completeFamily()
+        let session = session(auth: auth, accounts: accounts)
+        await session.start()
+        XCTAssertEqual(session.phase, .ready)
+        XCTAssertTrue(session.activeState.isProduction)
+        XCTAssertEqual(session.activeState.role, .family)
+        XCTAssertEqual(session.activeState.screen, .familyDashboard)
+        XCTAssertEqual(session.activeState.currentProfileID, Fixture.diwasID)
+        XCTAssertEqual(session.liveAccountID, Fixture.accountID)
+        XCTAssertTrue(accounts.liveUpdatesRunning)
+    }
+
+    func testRestoredSeniorSelectsTheirLinkedSenior() async {
+        let auth = FakeAuthSessionService(state: .signedIn(AuthenticatedUser(id: Fixture.mayaID, email: nil)))
+        let accounts = FakeCareAccountService()
+        accounts.profile = MemberProfile(displayName: "Maya", city: "")
+        accounts.role = .senior
+        let ramesh = AccountSenior(id: "senior-ramesh", accountID: Fixture.accountID, name: "Ramesh", age: 78,
+                                   city: "", timeZoneIdentifier: "UTC")
+        accounts.seniors = [ramesh, Fixture.maya(linkedTo: Fixture.mayaID)]
+        let session = session(auth: auth, accounts: accounts)
+        await session.start()
+        XCTAssertEqual(session.phase, .ready)
+        XCTAssertEqual(session.activeState.selectedSeniorID, "senior-maya")
+        XCTAssertEqual(session.activeState.screen, .seniorHome)
+    }
+
+    func testRestoreWhileOfflineShowsUnreachableThenRetrySucceeds() async {
+        let (auth, accounts) = completeFamily()
+        accounts.nextError = .offline
+        let session = session(auth: auth, accounts: accounts)
+        await session.start()
+        XCTAssertEqual(session.phase, .unreachable)
+        await session.retry()
+        XCTAssertEqual(session.phase, .ready)
+    }
+
+    func testExpiredSessionReturnsToWelcome() async {
+        let (auth, accounts) = completeFamily()
+        accounts.nextError = .unauthorized
+        let session = session(auth: auth, accounts: accounts)
+        await session.start()
+        XCTAssertEqual(session.phase, .welcome)
+        XCTAssertEqual(auth.signOutCount, 1)
+    }
+
+    func testInvalidEmailIsRejectedWithoutSending() async {
+        let auth = FakeAuthSessionService()
+        let session = session(auth: auth)
+        await session.start()
+        session.startSignIn()
+        await session.sendCode(to: "not-an-email")
+        XCTAssertEqual(session.phase, .enterEmail)
+        XCTAssertEqual(session.errorMessage, "Enter a valid email address")
+        XCTAssertTrue(auth.sentCodes.isEmpty)
+    }
+
+    func testWrongCodeStaysOnCodeEntry() async {
+        let session = session()
+        await session.start()
+        session.startSignIn()
+        await session.sendCode(to: " diwas@example.com ")
+        XCTAssertEqual(session.phase, .enterCode(email: "diwas@example.com"))
+        await session.verifyCode("000000")
+        XCTAssertEqual(session.phase, .enterCode(email: "diwas@example.com"))
+        XCTAssertEqual(session.errorMessage, "That code didn't work. Check the email or send a new one.")
+    }
+
+    func testResendWaitsSixtySeconds() async {
+        let auth = FakeAuthSessionService()
+        let session = session(auth: auth)
+        await session.start()
+        session.startSignIn()
+        await session.sendCode(to: "diwas@example.com")
+        XCTAssertEqual(session.secondsUntilResend(), 60)
+        await session.resendCode()
+        XCTAssertEqual(auth.sentCodes.count, 1)
+        clock.now += 60
+        XCTAssertEqual(session.secondsUntilResend(), 0)
+        await session.resendCode()
+        XCTAssertEqual(auth.sentCodes.count, 2)
+    }
+
+    func testCorrectCodeForNewUserAsksForName() async {
+        let session = session()
+        await session.start()
+        session.startSignIn()
+        await session.sendCode(to: "diwas@example.com")
+        await session.verifyCode("123456")
+        XCTAssertEqual(session.phase, .needsProfile)
+        XCTAssertTrue(session.isSignedIn)
+    }
+
+    func testDemoWhileSignedInReturnsToAccount() async {
+        let (auth, accounts) = completeFamily()
+        let session = session(auth: auth, accounts: accounts)
+        await session.start()
+        session.tryDemo()
+        XCTAssertEqual(session.phase, .demo)
+        XCTAssertFalse(session.activeState.isProduction)
+        XCTAssertNil(session.liveAccountID)
+        await session.exitDemo()
+        XCTAssertEqual(session.phase, .ready)
+        XCTAssertTrue(session.activeState.isProduction)
+    }
+
+    func testSignOutFromReadyResetsEverything() async {
+        let (auth, accounts) = completeFamily()
+        let session = session(auth: auth, accounts: accounts)
+        await session.start()
+        await session.signOut()
+        XCTAssertEqual(session.phase, .welcome)
+        XCTAssertEqual(auth.signOutCount, 1)
+        XCTAssertFalse(accounts.liveUpdatesRunning)
+        XCTAssertFalse(session.activeState.isProduction)
+        XCTAssertFalse(session.isSignedIn)
+        XCTAssertNil(session.liveAccountID)
+    }
+}
