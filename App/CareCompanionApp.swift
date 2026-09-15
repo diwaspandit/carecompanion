@@ -1242,7 +1242,6 @@ private struct FamilyProfileView: View {
             .buttonStyle(.plain)
             .accessibilityIdentifier("profile.switchRole")
         }
-        .sheet(isPresented: $showPlans) { PlansComparisonView() }
         .sheet(isPresented: $showHealthPermissions) {
             HealthPermissionsView()
         }
