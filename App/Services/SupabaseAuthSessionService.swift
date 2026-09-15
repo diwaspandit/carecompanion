@@ -78,9 +78,20 @@ import Supabase
     func handleOpenURL(_ url: URL) async throws {
         guard url.scheme == Self.redirectURL.scheme else { return }
         do {
-            let session = try await client.auth.session(from: url)
+            // Links sent from the Supabase dashboard or admin API carry tokens in the fragment
+            // (implicit grant); links requested from this app carry a PKCE code.
+            let fragment = Dictionary(
+                (URLComponents(string: "carecompanion://callback?" + (url.fragment ?? ""))?.queryItems ?? [])
+                    .compactMap { item in item.value.map { (item.name, $0) } },
+                uniquingKeysWith: { first, _ in first })
+            let session: Session
+            if let accessToken = fragment["access_token"], let refreshToken = fragment["refresh_token"] {
+                session = try await client.auth.setSession(accessToken: accessToken, refreshToken: refreshToken)
+            } else {
+                session = try await client.auth.session(from: url)
+            }
             let user = Self.user(from: session.user)
-            if UserDefaults.standard.bool(forKey: Self.pendingRecoveryKey) {
+            if fragment["type"] == "recovery" || UserDefaults.standard.bool(forKey: Self.pendingRecoveryKey) {
                 UserDefaults.standard.removeObject(forKey: Self.pendingRecoveryKey)
                 state = .recoveringPassword(user)
             } else {
@@ -91,14 +102,14 @@ import Supabase
         }
     }
 
+    /// Always ends signed out on this device, even when the server can't be reached.
     func signOut() async throws {
+        defer { state = .signedOut }
         do {
             try await client.auth.signOut()
         } catch {
-            // The SDK clears the local session even when the network call fails.
-            if SupabaseErrorMapper.map(error) != .offline { throw SupabaseErrorMapper.map(error) }
+            try? await client.auth.signOut(scope: .local)
         }
-        state = .signedOut
     }
 
     /// Leaves "check your email" screens without touching the server.

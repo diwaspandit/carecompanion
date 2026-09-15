@@ -34,7 +34,7 @@ import Supabase
     @ObservationIgnored private let client: SupabaseClient?
     @ObservationIgnored private let auth: SupabaseAuthSessionService?
     @ObservationIgnored private let healthProvider = HealthKitHealthDataProvider()
-    @ObservationIgnored private var hasLoadedAccount = false
+    private var hasLoadedAccount = false
 
     init(client: SupabaseClient? = SupabaseConfig.sharedClient) {
         self.client = client
@@ -118,8 +118,8 @@ import Supabase
     func signOut() async {
         guard let auth else { return }
         await clearAccount()
-        _ = await run { try await auth.signOut() }
-        authState = auth.state
+        try? await auth.signOut()
+        authState = .signedOut
     }
 
     /// Permanently deletes the login, the profile and any care account nobody else belongs to.

@@ -16,6 +16,10 @@ struct UserProfileDetails: Equatable, Sendable, Decodable {
 
 /// Production CareRepository: account-scoped reads/writes through PostgREST (RLS enforced
 /// server-side) plus realtime refresh. Views never see this type, only `CareRepository`.
+///
+/// Every write is safe to send twice: new rows carry an id generated on the device and are inserted
+/// with "ignore duplicates", and updates/deletes target explicit ids. That lets transient connection
+/// drops be retried without creating duplicate check-ins, medicines or messages.
 @MainActor final class SupabaseCareRepository: CareRepository {
     private(set) var snapshot: CareSnapshot
     let accountID: String
@@ -44,18 +48,19 @@ struct UserProfileDetails: Equatable, Sendable, Decodable {
     /// `.invalidState` when the user has not created or joined an account yet.
     static func load(client: SupabaseClient, now: @escaping () -> Date = Date.init) async throws -> SupabaseCareRepository {
         do {
-            let session = try await client.auth.session
-            let profileID = session.user.id.uuidString.lowercased()
-            let memberships: [MembershipRow] = try await client.from("account_members")
-                .select("account_id")
-                .eq("profile_id", value: profileID)
-                .order("created_at")
-                .limit(1)
-                .execute().value
+            let profileID = try await client.auth.session.user.id.uuidString.lowercased()
+            let memberships: [MembershipRow] = try await TransientRetry.run {
+                try await client.from("account_members")
+                    .select("account_id")
+                    .eq("profile_id", value: profileID)
+                    .order("created_at")
+                    .limit(1)
+                    .execute().value
+            }
             guard let accountID = memberships.first?.accountID else {
                 throw CareServiceError.invalidState("No care account yet")
             }
-            let records = try await fetchRecords(client: client, accountID: accountID, now: now())
+            let records = try await TransientRetry.run { try await fetchRecords(client: client, accountID: accountID, now: now()) }
             return try SupabaseCareRepository(client: client, accountID: accountID, profileID: profileID,
                                               records: records, now: now)
         } catch {
@@ -68,11 +73,13 @@ struct UserProfileDetails: Equatable, Sendable, Decodable {
     static func loadProfile(client: SupabaseClient) async throws -> UserProfileDetails {
         do {
             let profileID = try await client.auth.session.user.id.uuidString.lowercased()
-            return try await client.from("profiles")
-                .select("display_name, city, phone")
-                .eq("id", value: profileID)
-                .single()
-                .execute().value
+            return try await TransientRetry.run {
+                try await client.from("profiles")
+                    .select("display_name, city, phone")
+                    .eq("id", value: profileID)
+                    .single()
+                    .execute().value
+            }
         } catch {
             throw SupabaseErrorMapper.map(error)
         }
@@ -81,15 +88,19 @@ struct UserProfileDetails: Equatable, Sendable, Decodable {
     static func saveProfile(client: SupabaseClient, _ profile: UserProfileDetails) async throws {
         do {
             let profileID = try await client.auth.session.user.id.uuidString.lowercased()
-            try await client.from("profiles")
-                .update(ProfileUpdate(displayName: profile.displayName, city: profile.city, phone: profile.phone))
-                .eq("id", value: profileID)
-                .execute()
+            try await TransientRetry.run {
+                try await client.from("profiles")
+                    .update(ProfileUpdate(displayName: profile.displayName, city: profile.city, phone: profile.phone),
+                            returning: .minimal)
+                    .eq("id", value: profileID)
+                    .execute()
+            }
         } catch {
             throw SupabaseErrorMapper.map(error)
         }
     }
 
+    /// Not retried: a second call would create a second family.
     static func createAccount(client: SupabaseClient, name: String, role: CareRole) async throws {
         do {
             try await client.rpc("create_care_account", params: ["account_name": name, "member_role": role.rawValue]).execute()
@@ -100,7 +111,9 @@ struct UserProfileDetails: Equatable, Sendable, Decodable {
 
     static func joinAccount(client: SupabaseClient, inviteCode: String, role: CareRole) async throws {
         do {
-            try await client.rpc("join_care_account", params: ["code": inviteCode, "member_role": role.rawValue]).execute()
+            try await TransientRetry.run {
+                try await client.rpc("join_care_account", params: ["code": inviteCode, "member_role": role.rawValue]).execute()
+            }
         } catch {
             throw SupabaseErrorMapper.map(error)
         }
@@ -118,7 +131,9 @@ struct UserProfileDetails: Equatable, Sendable, Decodable {
 
     func refresh() async throws {
         do {
-            let records = try await Self.fetchRecords(client: client, accountID: accountID, now: now())
+            let records = try await TransientRetry.run {
+                try await Self.fetchRecords(client: client, accountID: accountID, now: now())
+            }
             snapshot = try records.snapshot(now: now())
         } catch {
             throw SupabaseErrorMapper.map(error)
@@ -225,11 +240,12 @@ struct UserProfileDetails: Equatable, Sendable, Decodable {
     // MARK: - Writes
 
     func checkIn(seniorID: String, at date: Date) async throws {
-        try await insert("check_ins", CheckInInsert(accountID: try account(for: seniorID), seniorID: seniorID, occurredAt: date))
+        try await insert("check_ins", CheckInInsert(id: Self.newID(), accountID: try account(for: seniorID),
+                                                    seniorID: seniorID, occurredAt: date))
     }
 
     func recordMood(_ mood: Mood, seniorID: String, at date: Date, note: String?) async throws {
-        try await insert("mood_entries", MoodInsert(accountID: try account(for: seniorID), seniorID: seniorID,
+        try await insert("mood_entries", MoodInsert(id: Self.newID(), accountID: try account(for: seniorID), seniorID: seniorID,
                                                     mood: mood.rawValue, note: note, occurredAt: date))
     }
 
@@ -238,26 +254,28 @@ struct UserProfileDetails: Equatable, Sendable, Decodable {
             throw CareServiceError.invalidState("Medication not found")
         }
         try await insert("medication_events", MedicationEventInsert(
-            accountID: try account(for: medication.seniorID), seniorID: medication.seniorID,
+            id: Self.newID(), accountID: try account(for: medication.seniorID), seniorID: medication.seniorID,
             medicationID: medicationID, status: taken ? "taken" : "skipped", occurredAt: date))
     }
 
     func addMedication(seniorID: String, name: String, dosage: String, scheduledTime: String) async throws {
-        try await insert("medications", MedicationInsert(accountID: try account(for: seniorID), seniorID: seniorID,
-                                                        name: name, dosage: dosage, scheduledTime: scheduledTime))
+        try await insert("medications", MedicationInsert(id: Self.newID(), accountID: try account(for: seniorID),
+                                                        seniorID: seniorID, name: name, dosage: dosage,
+                                                        scheduledTime: scheduledTime))
     }
 
     func updateMedication(id: String, name: String, dosage: String, scheduledTime: String) async throws {
         try await perform {
             try await client.from("medications")
-                .update(MedicationUpdate(name: name, dosage: dosage, scheduledTime: scheduledTime))
+                .update(MedicationUpdate(name: name, dosage: dosage, scheduledTime: scheduledTime), returning: .minimal)
                 .eq("id", value: id).execute()
         }
     }
 
     func deleteMedication(id: String) async throws {
         try await perform {
-            try await client.from("medications").update(SoftDelete(deletedAt: now())).eq("id", value: id).execute()
+            try await client.from("medications").update(SoftDelete(deletedAt: now()), returning: .minimal)
+                .eq("id", value: id).execute()
         }
     }
 
@@ -272,33 +290,40 @@ struct UserProfileDetails: Equatable, Sendable, Decodable {
         guard !rows.isEmpty else { return }
         try await perform {
             try await client.from("health_snapshots")
-                .upsert(rows, onConflict: "senior_id,snapshot_date,source").execute()
+                .upsert(rows, onConflict: "senior_id,snapshot_date,source", returning: .minimal).execute()
         }
     }
 
     func saveAppointment(_ appointment: Appointment) async throws {
-        let row = AppointmentWrite(accountID: try account(for: appointment.seniorID), seniorID: appointment.seniorID,
-                                   title: appointment.title, clinician: appointment.clinician,
-                                   scheduledAt: appointment.date, location: appointment.location, notes: appointment.notes)
-        try await perform {
-            if appointment.id.isEmpty {
-                try await client.from("appointments").insert(row).execute()
-            } else {
-                try await client.from("appointments").update(row).eq("id", value: appointment.id).execute()
+        let accountID = try account(for: appointment.seniorID)
+        if appointment.id.isEmpty {
+            try await insert("appointments", AppointmentInsert(
+                id: Self.newID(), accountID: accountID, seniorID: appointment.seniorID, title: appointment.title,
+                clinician: appointment.clinician, scheduledAt: appointment.date, location: appointment.location,
+                notes: appointment.notes))
+        } else {
+            let row = AppointmentUpdate(title: appointment.title, clinician: appointment.clinician,
+                                        scheduledAt: appointment.date, location: appointment.location, notes: appointment.notes)
+            try await perform {
+                try await client.from("appointments").update(row, returning: .minimal).eq("id", value: appointment.id).execute()
             }
         }
     }
 
     func deleteAppointment(id: String) async throws {
         try await perform {
-            try await client.from("appointments").update(SoftDelete(deletedAt: now())).eq("id", value: id).execute()
+            try await client.from("appointments").update(SoftDelete(deletedAt: now()), returning: .minimal)
+                .eq("id", value: id).execute()
         }
     }
 
     func triggerSOS(seniorID: String, at date: Date) async throws {
-        let row = AlertInsert(accountID: try account(for: seniorID), seniorID: seniorID, kind: "sos", occurredAt: date)
+        let row = AlertInsert(id: Self.newID(), accountID: try account(for: seniorID), seniorID: seniorID,
+                              kind: "sos", occurredAt: date)
         do {
-            try await client.from("alerts").insert(row).execute()
+            try await TransientRetry.run {
+                try await client.from("alerts").upsert(row, onConflict: "id", returning: .minimal, ignoreDuplicates: true).execute()
+            }
         } catch let error as PostgrestError where error.code == "23505" {
             // An open SOS already exists for this senior: SOS is idempotent.
         } catch {
@@ -310,14 +335,14 @@ struct UserProfileDetails: Equatable, Sendable, Decodable {
     func acknowledgeAlerts(seniorID: String) async throws {
         try await perform {
             try await client.from("alerts")
-                .update(AlertAcknowledgement(acknowledgedAt: now(), acknowledgedBy: currentProfileID))
+                .update(AlertAcknowledgement(acknowledgedAt: now(), acknowledgedBy: currentProfileID), returning: .minimal)
                 .eq("senior_id", value: seniorID).eq("acknowledged", value: false).execute()
         }
     }
 
     func addSenior(_ senior: AccountSenior) async throws {
         try await insert("account_seniors", SeniorInsert(
-            accountID: accountID, name: senior.name, age: senior.age, city: senior.city,
+            id: Self.newID(), accountID: accountID, name: senior.name, age: senior.age, city: senior.city,
             timeZoneIdentifier: senior.timeZoneIdentifier, profileID: senior.profileID))
     }
 
@@ -325,14 +350,15 @@ struct UserProfileDetails: Equatable, Sendable, Decodable {
         try await perform {
             try await client.from("account_seniors")
                 .update(SeniorUpdate(name: senior.name, age: senior.age, city: senior.city,
-                                     timeZoneIdentifier: senior.timeZoneIdentifier))
+                                     timeZoneIdentifier: senior.timeZoneIdentifier), returning: .minimal)
                 .eq("id", value: senior.id).execute()
         }
     }
 
     func removeSenior(id: String) async throws {
         try await perform {
-            try await client.from("account_seniors").update(SoftDelete(deletedAt: now())).eq("id", value: id).execute()
+            try await client.from("account_seniors").update(SoftDelete(deletedAt: now()), returning: .minimal)
+                .eq("id", value: id).execute()
         }
     }
 
@@ -343,32 +369,36 @@ struct UserProfileDetails: Equatable, Sendable, Decodable {
     }
 
     func saveEmergencyContact(_ contact: EmergencyContact) async throws {
-        let row = EmergencyContactWrite(accountID: try account(for: contact.seniorID), seniorID: contact.seniorID,
-                                        name: contact.name, relation: contact.relation, phone: contact.phone)
-        try await perform {
-            if contact.id.isEmpty {
-                try await client.from("emergency_contacts").insert(row).execute()
-            } else {
-                try await client.from("emergency_contacts").update(row).eq("id", value: contact.id).execute()
+        let accountID = try account(for: contact.seniorID)
+        if contact.id.isEmpty {
+            try await insert("emergency_contacts", EmergencyContactInsert(
+                id: Self.newID(), accountID: accountID, seniorID: contact.seniorID, name: contact.name,
+                relation: contact.relation, phone: contact.phone))
+        } else {
+            try await perform {
+                try await client.from("emergency_contacts")
+                    .update(EmergencyContactUpdate(name: contact.name, relation: contact.relation, phone: contact.phone),
+                            returning: .minimal)
+                    .eq("id", value: contact.id).execute()
             }
         }
     }
 
     func deleteEmergencyContact(id: String) async throws {
         try await perform {
-            try await client.from("emergency_contacts").delete().eq("id", value: id).execute()
+            try await client.from("emergency_contacts").delete(returning: .minimal).eq("id", value: id).execute()
         }
     }
 
     func sendMessage(_ body: String) async throws {
-        try await insert("messages", MessageInsert(accountID: accountID, body: body))
+        try await insert("messages", MessageInsert(id: Self.newID(), accountID: accountID, body: body))
     }
 
     func updateProfile(displayName: String, city: String, phone: String) async throws {
         guard let currentProfileID else { throw CareServiceError.unauthorized }
         try await perform {
             try await client.from("profiles")
-                .update(ProfileUpdate(displayName: displayName, city: city, phone: phone))
+                .update(ProfileUpdate(displayName: displayName, city: city, phone: phone), returning: .minimal)
                 .eq("id", value: currentProfileID).execute()
         }
     }
@@ -382,18 +412,26 @@ struct UserProfileDetails: Equatable, Sendable, Decodable {
         return senior.accountID
     }
 
+    /// Inserts a row whose id was generated on the device; a retried duplicate is ignored.
     private func insert(_ table: String, _ row: some Encodable & Sendable) async throws {
-        try await perform { try await client.from(table).insert(row).execute() }
+        try await perform {
+            try await client.from(table).upsert(row, onConflict: "id", returning: .minimal, ignoreDuplicates: true).execute()
+        }
     }
 
-    /// Runs a write, then re-reads so `snapshot` reflects server-side defaults and triggers.
+    /// Runs an idempotent write (retrying a dropped connection once), then re-reads so `snapshot`
+    /// reflects server-side defaults and triggers.
     private func perform(_ write: () async throws -> Void) async throws {
         do {
-            try await write()
+            try await TransientRetry.run(write)
         } catch {
             throw SupabaseErrorMapper.map(error)
         }
         try await refresh()
+    }
+
+    private static func newID() -> String {
+        UUID().uuidString.lowercased()
     }
 
     private static func iso(_ date: Date) -> String {
@@ -419,23 +457,23 @@ private struct SoftDelete: Encodable, Sendable {
 }
 
 private struct CheckInInsert: Encodable, Sendable {
-    let accountID: String, seniorID: String, occurredAt: Date
+    let id: String, accountID: String, seniorID: String, occurredAt: Date
     enum CodingKeys: String, CodingKey {
-        case accountID = "account_id", seniorID = "senior_id", occurredAt = "occurred_at"
+        case id, accountID = "account_id", seniorID = "senior_id", occurredAt = "occurred_at"
     }
 }
 
 private struct MoodInsert: Encodable, Sendable {
-    let accountID: String, seniorID: String, mood: String, note: String?, occurredAt: Date
+    let id: String, accountID: String, seniorID: String, mood: String, note: String?, occurredAt: Date
     enum CodingKeys: String, CodingKey {
-        case mood, note, accountID = "account_id", seniorID = "senior_id", occurredAt = "occurred_at"
+        case id, mood, note, accountID = "account_id", seniorID = "senior_id", occurredAt = "occurred_at"
     }
 }
 
 private struct MedicationInsert: Encodable, Sendable {
-    let accountID: String, seniorID: String, name: String, dosage: String, scheduledTime: String
+    let id: String, accountID: String, seniorID: String, name: String, dosage: String, scheduledTime: String
     enum CodingKeys: String, CodingKey {
-        case name, dosage, accountID = "account_id", seniorID = "senior_id", scheduledTime = "scheduled_time"
+        case id, name, dosage, accountID = "account_id", seniorID = "senior_id", scheduledTime = "scheduled_time"
     }
 }
 
@@ -445,9 +483,9 @@ private struct MedicationUpdate: Encodable, Sendable {
 }
 
 private struct MedicationEventInsert: Encodable, Sendable {
-    let accountID: String, seniorID: String, medicationID: String, status: String, occurredAt: Date
+    let id: String, accountID: String, seniorID: String, medicationID: String, status: String, occurredAt: Date
     enum CodingKeys: String, CodingKey {
-        case status, accountID = "account_id", seniorID = "senior_id",
+        case id, status, accountID = "account_id", seniorID = "senior_id",
              medicationID = "medication_id", occurredAt = "occurred_at"
     }
 }
@@ -462,19 +500,26 @@ private struct HealthSnapshotUpsert: Encodable, Sendable {
     }
 }
 
-private struct AppointmentWrite: Encodable, Sendable {
-    let accountID: String, seniorID: String, title: String, clinician: String
+private struct AppointmentInsert: Encodable, Sendable {
+    let id: String, accountID: String, seniorID: String, title: String, clinician: String
     let scheduledAt: Date, location: String, notes: String
     enum CodingKeys: String, CodingKey {
-        case title, clinician, location, notes, accountID = "account_id",
+        case id, title, clinician, location, notes, accountID = "account_id",
              seniorID = "senior_id", scheduledAt = "scheduled_at"
     }
 }
 
-private struct AlertInsert: Encodable, Sendable {
-    let accountID: String, seniorID: String, kind: String, occurredAt: Date
+private struct AppointmentUpdate: Encodable, Sendable {
+    let title: String, clinician: String, scheduledAt: Date, location: String, notes: String
     enum CodingKeys: String, CodingKey {
-        case kind, accountID = "account_id", seniorID = "senior_id", occurredAt = "occurred_at"
+        case title, clinician, location, notes, scheduledAt = "scheduled_at"
+    }
+}
+
+private struct AlertInsert: Encodable, Sendable {
+    let id: String, accountID: String, seniorID: String, kind: String, occurredAt: Date
+    enum CodingKeys: String, CodingKey {
+        case id, kind, accountID = "account_id", seniorID = "senior_id", occurredAt = "occurred_at"
     }
 }
 
@@ -488,14 +533,15 @@ private struct AlertAcknowledgement: Encodable, Sendable {
 }
 
 private struct SeniorInsert: Encodable, Sendable {
-    let accountID: String, name: String, age: Int, city: String, timeZoneIdentifier: String, profileID: String?
+    let id: String, accountID: String, name: String, age: Int, city: String, timeZoneIdentifier: String, profileID: String?
     enum CodingKeys: String, CodingKey {
-        case name, age, city, accountID = "account_id", timeZoneIdentifier = "time_zone_identifier",
+        case id, name, age, city, accountID = "account_id", timeZoneIdentifier = "time_zone_identifier",
              profileID = "profile_id"
     }
 
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
         try container.encode(accountID, forKey: .accountID)
         try container.encode(name, forKey: .name)
         try container.encode(age, forKey: .age)
@@ -512,14 +558,18 @@ private struct SeniorUpdate: Encodable, Sendable {
     }
 }
 
-private struct EmergencyContactWrite: Encodable, Sendable {
-    let accountID: String, seniorID: String, name: String, relation: String, phone: String
+private struct EmergencyContactInsert: Encodable, Sendable {
+    let id: String, accountID: String, seniorID: String, name: String, relation: String, phone: String
     enum CodingKeys: String, CodingKey {
-        case name, relation, phone, accountID = "account_id", seniorID = "senior_id"
+        case id, name, relation, phone, accountID = "account_id", seniorID = "senior_id"
     }
 }
 
+private struct EmergencyContactUpdate: Encodable, Sendable {
+    let name: String, relation: String, phone: String
+}
+
 private struct MessageInsert: Encodable, Sendable {
-    let accountID: String, body: String
-    enum CodingKeys: String, CodingKey { case body, accountID = "account_id" }
+    let id: String, accountID: String, body: String
+    enum CodingKeys: String, CodingKey { case id, body, accountID = "account_id" }
 }
