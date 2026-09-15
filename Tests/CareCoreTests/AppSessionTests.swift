@@ -188,3 +188,94 @@ import XCTest
         XCTAssertNil(session.liveAccountID)
     }
 }
+
+@MainActor final class AppSessionOnboardingTests: XCTestCase {
+    private func signedInSession(as profileID: String, accounts: FakeCareAccountService) -> AppSession {
+        accounts.signedInProfileID = profileID
+        let auth = FakeAuthSessionService(state: .signedIn(AuthenticatedUser(id: profileID, email: nil)))
+        return AppSession(auth: auth, accounts: accounts, demoState: AppState(repository: DemoCareRepository()))
+    }
+
+    func testNewFamilyReachesReadyThroughInvite() async {
+        let accounts = FakeCareAccountService()
+        let session = signedInSession(as: Fixture.diwasID, accounts: accounts)
+        await session.start()
+        XCTAssertEqual(session.phase, .needsProfile)
+        await session.saveProfile(displayName: " Diwas ", city: "Austin")
+        XCTAssertEqual(accounts.profile, MemberProfile(displayName: "Diwas", city: "Austin"))
+        XCTAssertEqual(session.phase, .needsFamily)
+        await session.createFamily(name: "Sharma family")
+        XCTAssertEqual(session.phase, .needsSenior)
+        await session.addSenior(name: "Maya Sharma", age: 74, city: "Kathmandu", timeZoneIdentifier: "Asia/Kathmandu")
+        XCTAssertEqual(session.phase, .inviteFamily(code: "ABCD1234"))
+        await session.finishInvite()
+        XCTAssertEqual(session.phase, .ready)
+        XCTAssertEqual(session.activeState.role, .family)
+    }
+
+    func testBlankNamesAreRejectedLocally() async {
+        let accounts = FakeCareAccountService()
+        let session = signedInSession(as: Fixture.diwasID, accounts: accounts)
+        await session.start()
+        await session.saveProfile(displayName: "   ", city: "")
+        XCTAssertEqual(session.errorMessage, "Enter your name")
+        XCTAssertEqual(session.phase, .needsProfile)
+    }
+
+    func testWrongInviteCodeKeepsFamilyStep() async {
+        let accounts = FakeCareAccountService()
+        accounts.profile = MemberProfile(displayName: "Sunita", city: "")
+        let session = signedInSession(as: "profile-sunita", accounts: accounts)
+        await session.start()
+        await session.joinFamily(inviteCode: "WRONG", role: .family)
+        XCTAssertEqual(session.phase, .needsFamily)
+        XCTAssertEqual(session.errorMessage, "No family found for that code.")
+    }
+
+    func testSeniorJoinsLinksAndLandsOnSeniorHome() async {
+        let accounts = FakeCareAccountService()
+        accounts.profile = MemberProfile(displayName: "Maya", city: "")
+        accounts.seniors = [Fixture.maya()]
+        let session = signedInSession(as: Fixture.mayaID, accounts: accounts)
+        await session.start()
+        await session.joinFamily(inviteCode: " abcd1234 ", role: .senior)
+        XCTAssertEqual(session.phase, .needsSeniorLink([Fixture.maya()]))
+        await session.claimSenior(id: "senior-maya")
+        XCTAssertEqual(session.phase, .ready)
+        XCTAssertEqual(session.activeState.selectedSenior?.profileID, Fixture.mayaID)
+        XCTAssertEqual(session.activeState.screen, .seniorHome)
+    }
+
+    func testClaimingSeniorLinkedElsewhereNamesThem() async {
+        let accounts = FakeCareAccountService()
+        accounts.profile = MemberProfile(displayName: "Maya", city: "")
+        accounts.role = .senior
+        accounts.seniors = [Fixture.maya()]
+        let session = signedInSession(as: Fixture.mayaID, accounts: accounts)
+        await session.start()
+        accounts.seniors[0].profileID = "profile-other"
+        await session.claimSenior(id: "senior-maya")
+        XCTAssertEqual(session.errorMessage, "Maya Sharma is already linked to another phone. Ask your family for help.")
+        XCTAssertEqual(session.phase, .needsSeniorLink([Fixture.maya()]))
+    }
+
+    func testOfflineStepShowsMessageAndStays() async {
+        let accounts = FakeCareAccountService()
+        accounts.profile = MemberProfile(displayName: "Diwas", city: "")
+        let session = signedInSession(as: Fixture.diwasID, accounts: accounts)
+        await session.start()
+        accounts.nextError = .offline
+        await session.createFamily(name: "Sharma family")
+        XCTAssertEqual(session.phase, .needsFamily)
+        XCTAssertEqual(session.errorMessage, "Can't reach CareCompanion. Check your connection and try again.")
+    }
+
+    func testSignOutMidOnboardingReturnsToWelcome() async {
+        let accounts = FakeCareAccountService()
+        let session = signedInSession(as: Fixture.diwasID, accounts: accounts)
+        await session.start()
+        await session.signOut()
+        XCTAssertEqual(session.phase, .welcome)
+        XCTAssertFalse(session.isSignedIn)
+    }
+}

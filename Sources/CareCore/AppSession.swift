@@ -235,6 +235,9 @@ import Observation
         await route()
     }
 
+    func markFamilyCreated() { justCreatedFamily = true }
+    func clearFamilyCreated() { justCreatedFamily = false }
+
     private func enterReady(_ membership: CareMembership) async {
         let state = AppState(repository: membership.repository, healthProvider: makeHealthProvider(),
                              currentProfileID: signedInProfileID, isProduction: true, now: Date.init)
@@ -261,5 +264,69 @@ import Observation
         case .invalidState(let message) where message == invalidEmailMessage: invalidEmailMessage
         default: fallbackMessage
         }
+    }
+}
+
+// MARK: - Onboarding steps
+
+extension AppSession {
+    public func saveProfile(displayName: String, city: String) async {
+        let name = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else {
+            errorMessage = "Enter your name"
+            return
+        }
+        let city = city.trimmingCharacters(in: .whitespacesAndNewlines)
+        await runStep { try await $0.updateProfile(MemberProfile(displayName: name, city: city)) }
+    }
+
+    public func createFamily(name: String) async {
+        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else {
+            errorMessage = "Enter a family name"
+            return
+        }
+        await runStep { accounts in
+            try await accounts.createFamily(name: name)
+            self.markFamilyCreated()
+        }
+    }
+
+    public func joinFamily(inviteCode: String, role: CareRole) async {
+        let code = inviteCode.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        guard !code.isEmpty else {
+            errorMessage = "Enter the invite code"
+            return
+        }
+        await runStep { try await $0.joinFamily(inviteCode: code, role: role) }
+    }
+
+    public func addSenior(name: String, age: Int, city: String, timeZoneIdentifier: String) async {
+        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else {
+            errorMessage = "Enter their name"
+            return
+        }
+        let city = city.trimmingCharacters(in: .whitespacesAndNewlines)
+        await runStep { try await $0.addSenior(name: name, age: age, city: city, timeZoneIdentifier: timeZoneIdentifier) }
+    }
+
+    public func finishInvite() async {
+        clearFamilyCreated()
+        await route()
+    }
+
+    public func claimSenior(id: String) async {
+        var name = "This senior"
+        if case .needsSeniorLink(let seniors) = phase, let senior = seniors.first(where: { $0.id == id }) {
+            name = senior.name
+        }
+        await runStep({ try await $0.claimSenior(id: id) }, onError: { error in
+            switch error as? CareServiceError {
+            case .seniorAlreadyLinked: "\(name) is already linked to another phone. Ask your family for help."
+            case .unauthorized: "Only someone who joined as the senior can do this."
+            default: AppSession.message(for: error)
+            }
+        })
     }
 }
