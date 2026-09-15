@@ -2,6 +2,28 @@
 
 Updated: 2026-09-14. Phase 5 Complete Production App Features implemented. Core backend and UI components complete, integration pending.
 
+## 2026-09-14 Family dashboard on real account data (branch `phase-4`)
+
+**Goal:** The family dashboard showed hard-coded Maya/Ramesh copy and seeded numbers even when signed in to a live account. It now shows the account's own seniors and their data.
+
+**Changes:**
+- `SeniorCareSummary` (CareCore) derives per-senior state from the snapshot: check-in time, latest mood and one-per-day mood history, medications taken/total/missed, one health entry per day (HealthKit wins over other sources), earlier-day step baseline, average sleep, resting heart rate range, and attention items.
+- `MockAIService` builds the care insight and appointment prep from that summary (real name, counts, health values, missed medication names) instead of fixed Maya text. Output stays observational and keeps the non-diagnosis safety note.
+- `AppState.seniorSummaries` / `selectedSummary`; `selectSenior` clears per-senior AI output; the alert count includes low activity vs. the earlier-day average.
+- Family dashboard: senior switcher and one card per senior built from `account_seniors`; greeting from account members; the fictional Ramesh card is gone.
+- Alerts, Profile (senior details, family members, baseline stats), Appointments (list and calendar), Health Timeline (sleep bars, steps and heart-rate trends, adherence, mood trend), and Chats use live data with empty states.
+- Fixed a crash: the paywall sheet was presented outside `.environment(state)` after the uncommitted auth-first launch flow change.
+
+**Verification:**
+- PASS: `swift test` — 58 XCTest cases, 0 failures (9 new in `SeniorCareSummaryTests`).
+- PASS: iOS Simulator build for iPhone 17.
+- PASS: live account on the iPhone 17 simulator shows senior "Samar Ranjit", check-in time, mood, Apple Health sleep, and a data-driven premium insight; unlocking premium no longer crashes.
+
+**Known gaps:**
+- Analysis is rule-based on real data, not a live model; Phase 6 still owns server-side AI.
+- Medication adherence covers today only; the snapshot has no weekly medication history.
+- Family members have no phone numbers in the schema, so "Call" and "Message" on alerts remain toasts.
+
 ## 2026-09-14 Phase 5: Complete Production App Features (main branch)
 
 **Goal:** Add production features needed for fully functional app beyond demo.

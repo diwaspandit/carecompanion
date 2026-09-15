@@ -39,17 +39,25 @@ import Observation
     public var medicationsTakenCount: Int { snapshot.medications.filter { $0.seniorID == selectedSeniorID && $0.taken }.count }
     public var latestHealth: HealthSnapshot? { snapshot.health.first { $0.seniorID == selectedSeniorID } }
     public var selectedAppointment: Appointment? { snapshot.appointments.first { $0.seniorID == selectedSeniorID } }
-    public var activeDemoAlertCount: Int {
-        var count = 1 // Activity below baseline is part of the deterministic demo story.
+    public var seniorSummaries: [SeniorCareSummary] {
+        snapshot.seniors.compactMap { SeniorCareSummary(snapshot: snapshot, seniorID: $0.id) }
+    }
+    public var selectedSummary: SeniorCareSummary? { SeniorCareSummary(snapshot: snapshot, seniorID: selectedSeniorID) }
+    public var activeAlertCount: Int {
+        var count = 0
         if medicationsTakenCount < snapshot.medications.filter({ $0.seniorID == selectedSeniorID }).count { count += 1 }
         if !isCheckedIn { count += 1 }
         if hasEmergency { count += 1 }
+        if selectedSummary?.isStepsBelowBaseline == true { count += 1 }
         return count
     }
 
     public func selectSenior(id: String) {
-        guard snapshot.seniors.contains(where: { $0.id == id }) else { return }
+        guard id != selectedSeniorID, snapshot.seniors.contains(where: { $0.id == id }) else { return }
         selectedSeniorID = id
+        careInsight = nil
+        appointmentPrep = nil
+        isAppointmentPreparedPreview = false
     }
     public func chooseRole(_ newRole: CareRole) {
         role = newRole
@@ -75,7 +83,7 @@ import Observation
                 selectedSeniorID = snapshot.seniors.first?.id ?? ""
             }
         } catch {
-            showDemoToast("Couldn't refresh care data: \(error.localizedDescription)")
+            showToast("Couldn't refresh care data: \(error.localizedDescription)")
         }
     }
 
@@ -84,9 +92,9 @@ import Observation
             try await repository.checkIn(seniorID: selectedSeniorID, at: now())
             snapshot = repository.snapshot
             seniorTab = .mood
-            showDemoToast("Maya's check-in is now visible to Diwas.")
+            showToast("Maya's check-in is now visible to Diwas.")
         } catch {
-            showDemoToast("Check-in failed: \(error.localizedDescription)")
+            showToast("Check-in failed: \(error.localizedDescription)")
         }
     }
 
@@ -94,9 +102,9 @@ import Observation
         do {
             try await repository.recordMood(mood, seniorID: selectedSeniorID, at: now(), note: note)
             snapshot = repository.snapshot
-            showDemoToast("Mood recorded for today's care context.")
+            showToast("Mood recorded for today's care context.")
         } catch {
-            showDemoToast("Failed to record mood: \(error.localizedDescription)")
+            showToast("Failed to record mood: \(error.localizedDescription)")
         }
     }
 
@@ -105,7 +113,7 @@ import Observation
             try await repository.toggleMedication(id: id)
             snapshot = repository.snapshot
         } catch {
-            showDemoToast("Failed to update medication: \(error.localizedDescription)")
+            showToast("Failed to update medication: \(error.localizedDescription)")
         }
     }
 
@@ -113,9 +121,9 @@ import Observation
         do {
             try await repository.addMedication(seniorID: selectedSeniorID, name: name, scheduledTime: scheduledTime)
             snapshot = repository.snapshot
-            showDemoToast("Medication added successfully.")
+            showToast("Medication added successfully.")
         } catch {
-            showDemoToast("Failed to add medication: \(error.localizedDescription)")
+            showToast("Failed to add medication: \(error.localizedDescription)")
         }
     }
 
@@ -123,9 +131,9 @@ import Observation
         do {
             try await repository.updateMedication(id: id, name: name, scheduledTime: scheduledTime)
             snapshot = repository.snapshot
-            showDemoToast("Medication updated successfully.")
+            showToast("Medication updated successfully.")
         } catch {
-            showDemoToast("Failed to update medication: \(error.localizedDescription)")
+            showToast("Failed to update medication: \(error.localizedDescription)")
         }
     }
 
@@ -133,9 +141,9 @@ import Observation
         do {
             try await repository.deleteMedication(id: id)
             snapshot = repository.snapshot
-            showDemoToast("Medication deleted.")
+            showToast("Medication deleted.")
         } catch {
-            showDemoToast("Failed to delete medication: \(error.localizedDescription)")
+            showToast("Failed to delete medication: \(error.localizedDescription)")
         }
     }
 
@@ -144,9 +152,9 @@ import Observation
             try await repository.triggerSOS(seniorID: selectedSeniorID, at: now())
             snapshot = repository.snapshot
             familyTab = .emergency
-            showDemoToast("SOS alert is active for the family dashboard.")
+            showToast("SOS alert is active for the family dashboard.")
         } catch {
-            showDemoToast("Failed to trigger SOS: \(error.localizedDescription)")
+            showToast("Failed to trigger SOS: \(error.localizedDescription)")
         }
     }
 
@@ -156,7 +164,7 @@ import Observation
             snapshot = repository.snapshot
             familyTab = .dashboard
         } catch {
-            showDemoToast("Failed to acknowledge emergency: \(error.localizedDescription)")
+            showToast("Failed to acknowledge emergency: \(error.localizedDescription)")
         }
     }
     public func showPaywall(for context: PaywallContext) {
@@ -166,7 +174,7 @@ import Observation
         isPremiumPreview = true
         subscription = SubscriptionAccess(activeEntitlements: ["premium_insights"])
         paywallContext = nil
-        showDemoToast("Premium AI unlocked for the demo.")
+        showToast("Premium AI unlocked.")
     }
     public func loadCareInsight(using service: any AIService = MockAIService()) async {
         guard hasPremiumAccess else {
@@ -183,9 +191,9 @@ import Observation
         guard let appointment = selectedAppointment else { return }
         appointmentPrep = try? await service.appointmentPrep(for: appointment, snapshot: snapshot)
         isAppointmentPreparedPreview = appointmentPrep != nil
-        showDemoToast("Appointment preparation is ready.")
+        showToast("Appointment preparation is ready.")
     }
-    public func showDemoToast(_ message: String) {
+    public func showToast(_ message: String) {
         toastMessage = message
     }
     public func clearToast() {
@@ -243,11 +251,11 @@ import Observation
             healthSyncStatus.lastSyncDate = syncDate
             healthSyncStatus.lastError = nil
 
-            showDemoToast("Health data synced successfully")
+            showToast("Health data synced successfully")
         } catch {
             healthSyncStatus.healthData = .failed
             healthSyncStatus.lastError = error.localizedDescription
-            showDemoToast("Health sync failed: \(error.localizedDescription)")
+            showToast("Health sync failed: \(error.localizedDescription)")
         }
     }
 
@@ -308,9 +316,9 @@ import Observation
         do {
             try await repository.updateSenior(senior)
             snapshot = repository.snapshot
-            showDemoToast("Senior profile updated.")
+            showToast("Senior profile updated.")
         } catch {
-            showDemoToast("Failed to update senior: \(error.localizedDescription)")
+            showToast("Failed to update senior: \(error.localizedDescription)")
         }
     }
 }

@@ -76,15 +76,18 @@ final class CareCoreTests: XCTestCase {
     func testEmergencyAcknowledgeClearsAlertBadge() async {
         let state = await MainActor.run { AppState(repository: DemoCareRepository()) }
         await MainActor.run {
-            XCTAssertEqual(state.activeDemoAlertCount, 3)
+            // Initial: 1 (not checked in) + 1 (1 medication not taken) = 2
+            XCTAssertEqual(state.activeAlertCount, 2)
         }
         await state.triggerSOS()
         await MainActor.run {
-            XCTAssertEqual(state.activeDemoAlertCount, 4)
+            // After SOS: 2 + 1 = 3
+            XCTAssertEqual(state.activeAlertCount, 3)
         }
         await state.acknowledgeEmergency()
         await MainActor.run {
-            XCTAssertEqual(state.activeDemoAlertCount, 3)
+            // After acknowledge: back to 2
+            XCTAssertEqual(state.activeAlertCount, 2)
         }
     }
     func testMedicationToggleUpdatesSnapshot() async {

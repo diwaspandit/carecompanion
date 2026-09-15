@@ -13,6 +13,7 @@ Secrets.xcconfig
 
 # Supabase/API secrets
 Config/Secrets.xcconfig
+Config/supabase_access_token
 # Swift Package Manager
 .build/
 .swiftpm/
