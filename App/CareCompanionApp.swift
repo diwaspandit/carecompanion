@@ -8,36 +8,42 @@ private enum CareRuntime {
 
 @main
 struct CareCompanionApp: App {
-    /// Demo mode never reads Apple Health; only live mode on the senior's linked device does.
-    @State private var state = AppState(repository: DemoCareRepository())
-    @State private var live = LiveModeController()
+    @State private var session = CareCompanionApp.makeSession()
     @State private var subscriptions = SubscriptionController()
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some Scene {
         WindowGroup {
-            RootView()
-                .id(live.isLive)
-                .environment(live.liveState ?? state)
-                .environment(live)
+            SessionRootView()
+                .environment(session)
                 .environment(subscriptions)
                 .preferredColorScheme(.light)
                 .task {
-                    await subscriptions.start(applyingTo: state)
+                    await session.start()
+                    await subscriptions.start(applyingTo: session.activeState)
                 }
                 .onChange(of: scenePhase) { _, phase in
                     guard phase == .active else { return }
-                    Task { await subscriptions.refresh(applyingTo: live.liveState ?? state) }
+                    Task { await subscriptions.refresh(applyingTo: session.activeState) }
                 }
-                .onChange(of: live.isLive) { _, _ in
+                .onChange(of: session.liveAccountID) { _, accountID in
                     // Subscriptions belong to the family account, so every member shares Plus/Pro.
-                    Task { await subscriptions.identify(accountID: live.liveAccountID, applyingTo: live.liveState ?? state) }
+                    Task { await subscriptions.identify(accountID: accountID, applyingTo: session.activeState) }
                 }
         }
     }
+
+    /// Demo mode never reads Apple Health; the live AppState gets HealthKit once an account is ready.
+    @MainActor private static func makeSession() -> AppSession {
+        let client = SupabaseConfig.sharedClient
+        let auth: (any AuthSessionService)? = client.map { SupabaseAuthSessionService(client: $0) }
+        let accounts: (any CareAccountService)? = client.map { SupabaseCareAccountService(client: $0) }
+        return AppSession(auth: auth, accounts: accounts, demoState: AppState(repository: DemoCareRepository()),
+                          makeHealthProvider: { HealthKitHealthDataProvider() }, isUITesting: CareRuntime.isUITesting)
+    }
 }
 
-private struct RootView: View {
+struct RootView: View {
     @Environment(AppState.self) private var state
     @Environment(\.scenePhase) private var scenePhase
     @State private var showDemoMenu = false
@@ -69,7 +75,10 @@ private struct RootView: View {
             .background(CareTheme.background.ignoresSafeArea())
         }
         .tint(CareTheme.sageDark)
-        .sheet(isPresented: $showDemoMenu) { DemoMenuView() }
+        // Demo scenarios write care data, so the demo menu never opens on a real account.
+        .sheet(isPresented: Binding(get: { showDemoMenu && !state.isProduction }, set: { showDemoMenu = $0 })) {
+            DemoMenuView()
+        }
         .sheet(item: $state.paywallContext) { context in
             PaywallHostView(context: context)
                 .presentationDetents([.medium, .large])
@@ -108,6 +117,7 @@ private struct OnboardingView: View {
                 .padding(.top, 70)
                 .padding(.bottom, 32)
                 .onLongPressGesture { showDemoMenu = true }
+                .accessibilityIdentifier("onboarding.logo")
 
             Text("Care that travels\nacross time zones.")
                 .font(.system(size: 34, weight: .black, design: .rounded))
@@ -482,20 +492,7 @@ private struct SeniorProfileScreen: View {
                         }
                     }
 
-                    Button {
-                        state.switchToFamily()
-                    } label: {
-                        HStack {
-                            Text("Switch role").font(.system(size: 16, weight: .black)).foregroundStyle(CareTheme.ink)
-                            Spacer()
-                            Image(systemName: "chevron.right").font(.system(size: 13, weight: .black)).foregroundStyle(CareTheme.secondaryText)
-                        }
-                        .padding(20)
-                        .background(.white, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
-                        .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).stroke(CareTheme.cardStroke))
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityIdentifier("senior.profile.switchRole")
+                    ProfileSessionActions(identifierPrefix: "senior.profile") { state.switchToFamily() }
                 }
                 .padding(.horizontal, 20)
                 .padding(.bottom, 110)
@@ -504,6 +501,49 @@ private struct SeniorProfileScreen: View {
         }
         .background(CareTheme.background)
         .sheet(isPresented: $showPlans) { PlansComparisonView() }
+    }
+}
+
+/// "Switch role" in the demo; "Try the demo" and "Sign out" on a real account.
+private struct ProfileSessionActions: View {
+    @Environment(AppState.self) private var state
+    @Environment(AppSession.self) private var session
+    let identifierPrefix: String
+    let switchRole: () -> Void
+
+    var body: some View {
+        VStack(spacing: 12) {
+            if state.isProduction {
+                ProfileActionRow(title: "Try the demo", identifier: "\(identifierPrefix).tryDemo") { session.tryDemo() }
+                ProfileActionRow(title: "Sign out", tint: CareTheme.coral, identifier: "\(identifierPrefix).signOut") {
+                    Task { await session.signOut() }
+                }
+            } else {
+                ProfileActionRow(title: "Switch role", identifier: "\(identifierPrefix).switchRole", action: switchRole)
+            }
+        }
+    }
+}
+
+private struct ProfileActionRow: View {
+    let title: String
+    var tint = CareTheme.ink
+    let identifier: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack {
+                Text(title).font(.system(size: 16, weight: .black)).foregroundStyle(tint)
+                Spacer()
+                Image(systemName: "chevron.right").font(.system(size: 13, weight: .black)).foregroundStyle(CareTheme.secondaryText)
+            }
+            .padding(20)
+            .background(.white, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).stroke(CareTheme.cardStroke))
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier(identifier)
     }
 }
 
@@ -1235,20 +1275,7 @@ private struct FamilyProfileView: View {
                 }
             }
 
-            Button {
-                state.switchToSenior()
-            } label: {
-                HStack {
-                    Text("Switch role").font(.system(size: 16, weight: .black)).foregroundStyle(CareTheme.ink)
-                    Spacer()
-                    Image(systemName: "chevron.right").font(.system(size: 13, weight: .black)).foregroundStyle(CareTheme.secondaryText)
-                }
-                .padding(20)
-                .background(.white, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).stroke(CareTheme.cardStroke))
-            }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("profile.switchRole")
+            ProfileSessionActions(identifierPrefix: "profile") { state.switchToSenior() }
         }
         .sheet(isPresented: $showHealthPermissions) {
             HealthPermissionsView()
@@ -1747,6 +1774,7 @@ private struct ChatsView: View {
 
 private struct DemoMenuView: View {
     @Environment(AppState.self) private var state
+    @Environment(AppSession.self) private var session
     @Environment(SubscriptionController.self) private var subscriptions
     @Environment(\.dismiss) private var dismiss
     @State private var showPlans = false
@@ -1754,6 +1782,13 @@ private struct DemoMenuView: View {
     var body: some View {
         NavigationStack {
             List {
+                Section {
+                    Button("Exit demo") {
+                        dismiss()
+                        Task { await session.exitDemo() }
+                    }
+                    .accessibilityIdentifier("demo.exit")
+                }
                 Section("Demo scenarios") {
                     ForEach(DemoScenario.allCases, id: \.self) { scenario in
                         Button(scenario.rawValue) {
@@ -1788,12 +1823,6 @@ private struct DemoMenuView: View {
                         .accessibilityIdentifier("demo.restorePurchases")
                     }
                 }
-                #if DEBUG
-                Section("Developer") {
-                    NavigationLink("Live Supabase") { LiveModeView() }
-                        .accessibilityIdentifier("demo.liveSupabase")
-                }
-                #endif
             }
             .navigationTitle("CareCompanion")
         }

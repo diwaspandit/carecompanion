@@ -36,6 +36,18 @@ final class CareCompanionDemoUITests: XCTestCase {
         XCTAssertTrue(app.element("onboarding.title").waitForExistence(timeout: 3))
     }
 
+    func testExitDemoReturnsToWelcome() throws {
+        let app = launchApp()
+
+        XCTAssertTrue(app.element("onboarding.logo").waitForExistence(timeout: 6))
+        app.element("onboarding.logo").press(forDuration: 1.1)
+        XCTAssertTrue(app.element("demo.exit").waitForExistence(timeout: 3))
+        app.element("demo.exit").tap()
+
+        XCTAssertTrue(app.element("welcome.title").waitForExistence(timeout: 3))
+        XCTAssertTrue(app.element("welcome.tryDemo").exists)
+    }
+
     private func runCoreDemoPath() throws {
         let app = launchApp()
 
