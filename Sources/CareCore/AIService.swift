@@ -37,41 +37,59 @@ public struct MockAIService: AIService {
     public init() {}
 
     public func careInsight(for snapshot: CareSnapshot, seniorID: String) async throws -> CareInsight {
-        let medicationCount = snapshot.medications.filter { $0.seniorID == seniorID && $0.taken }.count
-        let mood = snapshot.moods.last { $0.seniorID == seniorID }?.mood.rawValue ?? "Not recorded"
-        let health = snapshot.health.first { $0.seniorID == seniorID }
+        guard let care = SeniorCareSummary(snapshot: snapshot, seniorID: seniorID) else {
+            throw CareServiceError.invalidState("Senior not found")
+        }
+        let items = care.attentionItems
+        let summary = items.isEmpty
+            ? "\(care.firstName)'s routine looks steady based on today's check-in, medications, and recent health data."
+            : "Worth a look for \(care.firstName) today: \(SeniorCareSummary.list(items))."
         return CareInsight(
             title: "CareCompanion AI Insight",
-            summary: "Maya checked in and her routine looks mostly steady today. There are a few small changes worth discussing at the next appointment.",
-            observations: [
-                "\(medicationCount) of 4 medications are marked taken today.",
-                "Mood is recorded as \(mood).",
-                "Today's demo health snapshot shows \(health?.steps ?? 0) steps, \(Self.sleepText(minutes: health?.sleepMinutes ?? 0)) sleep, and \(health?.restingHeartRate ?? 0) bpm resting heart rate."
-            ],
-            suggestion: "Consider checking in about the missed evening medication and whether sleep felt restful. This is care organization support, not a diagnosis."
+            summary: summary,
+            observations: care.observations,
+            suggestion: Self.suggestion(for: care) + " This is care organization support, not a diagnosis."
         )
     }
 
     public func appointmentPrep(for appointment: Appointment, snapshot: CareSnapshot) async throws -> AppointmentPrep {
-        AppointmentPrep(
+        guard let care = SeniorCareSummary(snapshot: snapshot, seniorID: appointment.seniorID) else {
+            throw CareServiceError.invalidState("Senior not found")
+        }
+        var questions: [String] = []
+        if !care.missedMedications.isEmpty {
+            questions.append("Is the timing of \(SeniorCareSummary.list(care.missedMedications.map(\.name))) working for \(care.firstName)'s routine?")
+        }
+        if care.isStepsBelowBaseline {
+            questions.append("Has \(care.firstName) noticed any change in energy or daily activity recently?")
+        }
+        if let sleep = care.averageSleepMinutes {
+            questions.append("Has sleep felt restful? Recent nights average \(SeniorCareSummary.duration(minutes: sleep)).")
+        }
+        questions.append("Are there any changes to \(care.firstName)'s medications or routine we should note?")
+        questions.append("What should the family keep an eye on before the next visit?")
+        return AppointmentPrep(
             title: "Preparation for \(appointment.title)",
-            observations: [
-                "Maya has checked in today and reported feeling Okay.",
-                "Medication adherence is 3 of 4 for the current demo day.",
-                "Recent sleep is 6h 20min in the seeded demo snapshot.",
-                "Steps are lower than an active day in the seven-day demo history."
-            ],
-            questions: [
-                "Has Maya noticed any recent change in energy, balance, or appetite?",
-                "Should the evening medication routine be simplified?",
-                "Are sleep changes worth tracking before the next visit?"
-            ],
+            observations: care.observations,
+            questions: questions,
             safetyNote: "CareCompanion helps organize family observations and appointment questions. It does not diagnose, prescribe, or determine whether symptoms are an emergency."
         )
     }
 
-    private static func sleepText(minutes: Int) -> String {
-        "\(minutes / 60)h \(minutes % 60)min"
+    private static func suggestion(for care: SeniorCareSummary) -> String {
+        if care.hasEmergency {
+            return "Contact \(care.firstName) about the open SOS alert."
+        }
+        if !care.missedMedications.isEmpty {
+            return "Consider a quick call to ask whether \(care.firstName) has taken \(SeniorCareSummary.list(care.missedMedications.map(\.name)))."
+        }
+        if !care.isCheckedIn {
+            return "Consider reaching out to \(care.firstName), who hasn't confirmed today's check-in yet."
+        }
+        if care.isStepsBelowBaseline {
+            return "Consider asking \(care.firstName) how the day is going; activity is lower than the recent average."
+        }
+        return "No follow-up needed right now. Keep an eye on the next check-in."
     }
 }
 
