@@ -14,7 +14,7 @@ public enum AuthSessionState: Equatable, Sendable {
     /// Offline demo: no account, no network.
     case demo
     case signedOut
-    case magicLinkSent(email: String)
+    case codeSent(email: String)
     case signedIn(AuthenticatedUser)
 }
 
@@ -22,9 +22,12 @@ public enum AuthSessionState: Equatable, Sendable {
     var state: AuthSessionState { get }
     /// Restores a persisted session without prompting the user.
     func restoreSession() async -> AuthSessionState
-    func sendMagicLink(to email: String) async throws
-    /// Completes sign-in from the magic-link deep link.
-    func handleOpenURL(_ url: URL) async throws
+    /// Emails a one-time sign-in code. Creates the user if the email is new.
+    func sendEmailCode(to email: String) async throws
+    /// Completes sign-in with the emailed code. Throws `.invalidCode` when it is wrong or expired.
+    func verifyEmailCode(_ code: String, email: String) async throws
+    /// Test accounts only; the UI offers it in DEBUG builds.
+    func signIn(email: String, password: String) async throws
     func signOut() async throws
 }
 
@@ -35,8 +38,9 @@ public enum AuthSessionState: Equatable, Sendable {
     public init() {}
 
     public func restoreSession() async -> AuthSessionState { state }
-    public func sendMagicLink(to email: String) async throws {}
-    public func handleOpenURL(_ url: URL) async throws {}
+    public func sendEmailCode(to email: String) async throws {}
+    public func verifyEmailCode(_ code: String, email: String) async throws {}
+    public func signIn(email: String, password: String) async throws {}
     public func signOut() async throws {}
 }
 

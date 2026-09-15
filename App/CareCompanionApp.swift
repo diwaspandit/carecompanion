@@ -22,7 +22,6 @@ struct CareCompanionApp: App {
                 .environment(live)
                 .environment(subscriptions)
                 .preferredColorScheme(.light)
-                .onOpenURL { url in Task { await live.handleOpenURL(url) } }
                 .task {
                     await subscriptions.start(applyingTo: state)
                 }

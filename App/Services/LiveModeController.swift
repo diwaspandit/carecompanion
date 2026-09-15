@@ -42,20 +42,8 @@ import Supabase
         if isSignedIn { await loadAccount(reportMissing: false) }
     }
 
-    func sendMagicLink(to email: String) async {
-        await run { try await self.auth?.sendMagicLink(to: email) }
-        authState = auth?.state ?? .signedOut
-        if case .magicLinkSent(let email) = authState { message = "Magic link sent to \(email). Open it on this device." }
-    }
-
     func signIn(email: String, password: String) async {
         await run { try await self.auth?.signIn(email: email, password: password) }
-        authState = auth?.state ?? .signedOut
-        if isSignedIn { await loadAccount(reportMissing: false) }
-    }
-
-    func handleOpenURL(_ url: URL) async {
-        await run { try await self.auth?.handleOpenURL(url) }
         authState = auth?.state ?? .signedOut
         if isSignedIn { await loadAccount(reportMissing: false) }
     }

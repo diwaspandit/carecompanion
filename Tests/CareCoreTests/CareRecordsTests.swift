@@ -172,9 +172,17 @@ final class AuthSessionTests: XCTestCase {
         let auth = DemoAuthSessionService()
         let restored = await auth.restoreSession()
         XCTAssertEqual(restored, .demo)
-        try await auth.sendMagicLink(to: "diwas@example.com")
+        try await auth.sendEmailCode(to: "diwas@example.com")
+        try await auth.verifyEmailCode("123456", email: "diwas@example.com")
+        try await auth.signIn(email: "diwas@example.com", password: "unused")
         XCTAssertEqual(auth.state, .demo)
         try await auth.signOut()
         XCTAssertEqual(auth.state, .demo)
+    }
+
+    func testOnboardingErrorsHaveDescriptions() {
+        for error in [CareServiceError.invalidCode, .inviteNotFound, .seniorAlreadyLinked] {
+            XCTAssertNotNil(error.errorDescription)
+        }
     }
 }

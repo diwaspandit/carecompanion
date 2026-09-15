@@ -39,7 +39,6 @@ struct LiveModeView: View {
                         .keyboardType(.emailAddress)
                         .autocorrectionDisabled()
                         .accessibilityIdentifier("live.email")
-                    Button("Send magic link") { Task { await live.sendMagicLink(to: email) } }
                     SecureField("Password (test accounts)", text: $password)
                         .accessibilityIdentifier("live.password")
                     Button("Sign in with password") { Task { await live.signIn(email: email, password: password) } }

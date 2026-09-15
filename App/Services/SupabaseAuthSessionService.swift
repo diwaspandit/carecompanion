@@ -22,33 +22,36 @@ import Supabase
         return state
     }
 
-    func sendMagicLink(to email: String) async throws {
+    func sendEmailCode(to email: String) async throws {
         let email = email.trimmingCharacters(in: .whitespacesAndNewlines)
         guard EmailAddress.isValid(email) else {
             throw CareServiceError.invalidState("Enter a valid email address")
         }
         do {
-            try await client.auth.signInWithOTP(email: email, redirectTo: Self.redirectURL)
-            state = .magicLinkSent(email: email)
+            try await client.auth.signInWithOTP(email: email, shouldCreateUser: true)
+            state = .codeSent(email: email)
         } catch {
             throw SupabaseErrorMapper.map(error)
         }
     }
 
-    /// Developer/test accounts only; families sign in with magic links.
-    func signIn(email: String, password: String) async throws {
+    func verifyEmailCode(_ code: String, email: String) async throws {
         do {
-            let session = try await client.auth.signIn(email: email.trimmingCharacters(in: .whitespacesAndNewlines), password: password)
+            let response = try await client.auth.verifyOTP(
+                email: email.trimmingCharacters(in: .whitespacesAndNewlines),
+                token: code.trimmingCharacters(in: .whitespacesAndNewlines),
+                type: .email)
+            guard case .session(let session) = response else { throw CareServiceError.invalidCode }
             state = .signedIn(Self.user(from: session.user))
         } catch {
             throw SupabaseErrorMapper.map(error)
         }
     }
 
-    func handleOpenURL(_ url: URL) async throws {
-        guard url.scheme == Self.redirectURL.scheme else { return }
+    /// Test accounts only; the UI offers it in DEBUG builds.
+    func signIn(email: String, password: String) async throws {
         do {
-            let session = try await client.auth.session(from: url)
+            let session = try await client.auth.signIn(email: email.trimmingCharacters(in: .whitespacesAndNewlines), password: password)
             state = .signedIn(Self.user(from: session.user))
         } catch {
             throw SupabaseErrorMapper.map(error)
@@ -74,11 +77,15 @@ enum SupabaseErrorMapper {
     static func map(_ error: Error) -> CareServiceError {
         if let careError = error as? CareServiceError { return careError }
         if error is URLError { return .offline }
-        if let authError = error as? AuthError, case .sessionMissing = authError { return .unauthorized }
+        if let authError = error as? AuthError {
+            if case .sessionMissing = authError { return .unauthorized }
+            if authError.errorCode == .otpExpired || authError.errorCode == .invalidCredentials { return .invalidCode }
+            return .vendorUnavailable
+        }
         if let postgrest = error as? PostgrestError {
             switch postgrest.code {
             case "42501", "PGRST301", "28000": return .unauthorized
-            case "P0002": return .invalidState(postgrest.message)
+            case "P0002": return .inviteNotFound
             default: return .vendorUnavailable
             }
         }
