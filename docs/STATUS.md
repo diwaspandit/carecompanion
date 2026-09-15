@@ -1,5 +1,32 @@
 # CareCompanion status
 
+## 2026-09-14 senior role label
+
+- Changed the onboarding card title from "For myself" to "For senior" as requested.
+- PASS: iOS Simulator build; `swift test` — 54 tests, zero failures.
+
+## 2026-09-14 simplified onboarding story
+
+- Enlarged the Lottie homes and connecting arc, with a subtle arrival glow around Austin. The animation carries the distance story above a smaller, centered headline.
+- Removed the explanatory paragraph and settings footer. The remaining prompt is "How will you use CareCompanion?" with "For myself / Simple daily check-ins" and "For my family / Stay close, from anywhere" role cards.
+- Shortened default card height while allowing text and cards to grow with Dynamic Type. Role actions, local animation playback, Reduce Motion behavior, and the hidden demo-menu gesture are preserved.
+- PASS: iOS Simulator build; `swift test` — 54 tests, zero failures.
+- PASS: installed and launched on iPhone 17. Screenshot inspection at default Large and Extra Extra Extra Large text sizes shows complete, unclipped copy and both role cards visible. Restored the simulator to its original Large text size afterward.
+- Review screenshot: `/tmp/carecompanion-onboarding-simple.png`; larger-text screenshot: `/tmp/carecompanion-onboarding-large-text.png`.
+- Scope: onboarding presentation only; the full demo/purchase flow was not rerun.
+
+## 2026-09-14 onboarding Lottie preview
+
+- Replaced the onboarding heart badge with original, locally bundled Lottie artwork: two homes labeled Kathmandu and Austin and a coral heart traveling between them. Headline and role cards retain their existing content and actions.
+- Added the official `lottie-spm` package, pinned at 4.6.1. Added the standard app Frameworks runtime search path required to load its embedded dynamic framework. Corrected the initial launch failure and verified the installed app opens afterward.
+- The four-second animation plays once per onboarding appearance. Reduce Motion uses its final still frame; its device-setting behavior is implemented but was not manually toggled in this checkpoint. The illustration remains the existing long-press demo-menu entry point.
+- Onboarding can scroll on smaller screens. Visual inspection on iPhone 17 confirms the artwork, headline, both role cards, and footer are visible. No animations were added to other screens.
+- PASS: iOS Simulator build from a fresh derived-data directory, followed by successful incremental builds after framework-path and artwork-layer corrections.
+- PASS: `swift test` — 54 tests, zero failures. No domain logic changed.
+- PASS: simulator install, launch, and screenshot inspection. Recorded `/tmp/carecompanion-onboarding.mp4`; settled screenshot at `/tmp/carecompanion-onboarding-after.png`.
+- This is a single-screen review checkpoint; the full RevenueCat/demo acceptance flow was not rerun.
+
+
 Updated: 2026-09-14. `phase-3-sponsor` merges `dev` (which already had Phase 4 Apple Health sync merged in) with Phase 3 RevenueCat sponsor integration. Phase 4 notes come first, then Phase 3, then Phase 2.
 
 ## 2026-09-14 Merge: `dev` into `phase-3-sponsor`

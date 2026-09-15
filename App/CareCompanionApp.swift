@@ -106,38 +106,50 @@ private struct RootView: View {
 private struct OnboardingView: View {
     @Environment(AppState.self) private var state
     @Binding var showDemoMenu: Bool
+    @ScaledMetric(relativeTo: .largeTitle) private var titleSize = 30
 
     var body: some View {
+        GeometryReader { geometry in
+            ScrollView {
+                content
+                    .frame(minHeight: geometry.size.height, alignment: .topLeading)
+            }
+            .scrollIndicators(.hidden)
+        }
+        .background(CareTheme.background)
+    }
+
+    private var content: some View {
         VStack(alignment: .leading, spacing: 0) {
-            CircleIcon(systemName: "heart.text.square", color: CareTheme.sageDark, size: 56, iconSize: 25, fillOpacity: 0.20)
-                .padding(.top, 70)
+            OnboardingConnectionView()
+                .padding(.horizontal, -8)
+                .padding(.top, 32)
                 .padding(.bottom, 32)
+                .contentShape(Rectangle())
                 .onLongPressGesture { showDemoMenu = true }
 
             Text("Care that travels\nacross time zones.")
-                .font(.system(size: 34, weight: .black, design: .rounded))
-                .lineSpacing(1)
+                .font(.system(size: titleSize, weight: .bold, design: .rounded))
+                .lineSpacing(3)
                 .foregroundStyle(CareTheme.ink)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: .infinity)
                 .fixedSize(horizontal: false, vertical: true)
                 .accessibilityIdentifier("onboarding.title")
 
-            Text("CareCompanion connects elders at home\nwith the family looking after them from far\naway.")
-                .font(.system(size: 17, weight: .regular))
-                .lineSpacing(7)
-                .foregroundStyle(CareTheme.secondaryText)
-                .padding(.top, 16)
+            Spacer(minLength: 40)
 
-            Spacer(minLength: 110)
-
-            Text("Are you a senior or a family member?")
-                .font(.system(size: 14, weight: .bold))
+            Text("How will you use CareCompanion?")
+                .font(.subheadline.weight(.medium))
                 .foregroundStyle(CareTheme.mutedText)
-                .padding(.bottom, 16)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: .infinity)
+                .padding(.bottom, 20)
 
             Button {
                 state.chooseRole(.senior)
             } label: {
-                RoleChoiceRow(iconText: "🌿", title: "I am a senior", subtitle: "Simple screens, big buttons", fill: CareTheme.sage, foreground: .white, iconFill: .white.opacity(0.18))
+                RoleChoiceRow(iconText: "🌿", title: "For senior", subtitle: "Simple daily check-ins", fill: CareTheme.sage, foreground: .white, iconFill: .white.opacity(0.18))
             }
             .buttonStyle(.plain)
             .accessibilityIdentifier("onboarding.senior")
@@ -145,20 +157,15 @@ private struct OnboardingView: View {
             Button {
                 state.chooseRole(.family)
             } label: {
-                RoleChoiceRow(iconName: "person.2", title: "I am a family member", subtitle: "Dashboard, health data and\nalerts", fill: .white, foreground: CareTheme.ink, iconFill: CareTheme.grayPill)
+                RoleChoiceRow(iconName: "person.2", title: "For my family", subtitle: "Stay close, from anywhere", fill: .white, foreground: CareTheme.ink, iconFill: CareTheme.grayPill)
             }
             .buttonStyle(.plain)
-            .padding(.top, 18)
-
-            Text("You can switch roles later in Settings.")
-                .font(.system(size: 12))
-                .foregroundStyle(CareTheme.secondaryText)
-                .frame(maxWidth: .infinity)
-                .padding(.top, 24)
-                .padding(.bottom, 10)
+            .accessibilityIdentifier("onboarding.family")
+            .padding(.top, 14)
         }
         .padding(.horizontal, 24)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .padding(.bottom, 24)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
         .background(CareTheme.background)
     }
 }
@@ -182,18 +189,16 @@ private struct RoleChoiceRow: View {
                     Image(systemName: iconName).font(.system(size: 25, weight: .bold))
                 }
             }
-            .frame(width: 56, height: 56)
+            .frame(width: 48, height: 48)
             VStack(alignment: .leading, spacing: 3) {
                 Text(title)
-                    .font(.system(size: 20, weight: .black))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.82)
+                    .font(.system(.title3, design: .rounded).weight(.bold))
                 Text(subtitle)
-                    .font(.system(size: 14))
-                    .lineLimit(3)
+                    .font(.subheadline)
                     .lineSpacing(2)
-                    .opacity(0.72)
+                    .opacity(0.85)
             }
+            .fixedSize(horizontal: false, vertical: true)
             .layoutPriority(1)
             Spacer()
             Image(systemName: "chevron.right")
@@ -201,10 +206,11 @@ private struct RoleChoiceRow: View {
         }
         .foregroundStyle(foreground)
         .padding(.horizontal, 20)
-        .frame(height: 100)
-        .background(fill, in: RoundedRectangle(cornerRadius: 32, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 32, style: .continuous).stroke(fill == .white ? CareTheme.cardStroke : Color.clear))
-        .shadow(color: fill == .white ? CareTheme.shadow : CareTheme.sage.opacity(0.25), radius: 14, y: 8)
+        .padding(.vertical, 18)
+        .frame(minHeight: 88)
+        .background(fill, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 28, style: .continuous).stroke(fill == .white ? CareTheme.cardStroke : Color.clear))
+        .shadow(color: fill == .white ? CareTheme.shadow.opacity(0.5) : CareTheme.sage.opacity(0.18), radius: 12, y: 6)
     }
 }
 
