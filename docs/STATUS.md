@@ -1,6 +1,57 @@
 # CareCompanion status
 
-Updated: 2026-09-14. Phase 5 Complete Production App Features implemented. Core backend and UI components complete, integration pending.
+Updated: 2026-09-15. Production app on live Supabase: no demo mode, no seeded data, verified end to end on two simulators.
+
+## 2026-09-15 Production app: accounts, live data, messaging, Apple Health (branch `phase-4`)
+
+**Direction (product owner):** remove demo mode and dummy data, merge `phase-5`, make every screen read and write the database, make premium features free for now, add in-app family messaging.
+
+**Git:**
+- `12f35c6` merged `phase-5`. Its pasted copies of the feature views were dropped because `App/Features` was never in the Xcode target; those files are now compiled directly.
+- `743ce28` production accounts, messaging and dynamic care data.
+- `7bc3088` retry-safe writes, deep-link sessions, stuck loading fixes.
+
+**Database (`Supabase/migrations/20260915000001_production_features.sql`, applied to the live project with the Management API):**
+- `profiles.phone`, `medications.dosage`, `emergency_contacts`, `messages`.
+- `claim_senior()` and a trigger so only the senior can link their login to a senior record.
+- `delete_my_account()` for App Store account deletion.
+- Realtime for `account_members`, `account_seniors`, `emergency_contacts`, `messages`.
+- Verified live: all objects present, 7 new policies, anon has no grants on the new tables.
+
+**App:**
+- Email/password sign-up with confirmation, sign-in, password reset (deep link), token-fragment links.
+- Onboarding: profile (name, city, phone) → create family or join with invite code as family or senior → add senior / senior links themself.
+- Role from `account_members.role`: senior experience (check-in, mood with note, medicines with dosage and weekly adherence, visits, messages, Apple Health, SOS with real call buttons) or family experience (dashboard per senior, health timeline, alerts with calls, visits with prep, messages, profile with emergency contacts, medicines, members, invite code).
+- Settings: edit profile, share invite code, sign out, delete account, privacy page.
+- Apple Health syncs only on the linked senior's phone; sleep counts toward the wake-up day, overlapping samples are merged, days keyed by local date.
+- Writes use device-generated ids with ignore-duplicates and retry once on dropped connections.
+- Mood notes are read back (they were written but never selected).
+
+**Verification:**
+- PASS: `swift test` — 63 XCTest cases, 0 failures.
+- PASS: `Supabase/tests/run_docker.sh` — migrations on Postgres 17; `RLS TESTS PASSED`, `PRODUCTION RLS TESTS PASSED`.
+- PASS: iOS Simulator build, no warnings in `App/` or `Sources/`.
+- PASS, live, two simulators (family.e2e on iPhone 17, senior.e2e on iPhone 17 Pro), each step confirmed in the database:
+  - Profiles saved; family created (invite `1C4FF936`); Maya added in Asia/Kathmandu; senior joined and linked (`senior.claimed` audit event).
+  - Maya checked in and recorded mood; family dashboard and care insight updated.
+  - Family added Amlodipine 5 mg 8:00 AM → appeared on Maya's phone over realtime; Maya marked it taken → "1 of 1 doses taken".
+  - Messages both ways over realtime with sender names.
+  - Apple Health sample week written on the senior Simulator → 7 `health_snapshots` rows → family "fewer steps than usual" alert.
+  - Family added a visit → shown on Maya's phone in Kathmandu time; appointment prep lists real observations and questions.
+  - Maya triggered SOS → family Alerts showed it with a call button; "Handled" acknowledged it in the database. Senior SOS screen offers "Call Diwas Sharma".
+- Found and fixed during the run: the account-loaded flag was not observed (endless "Loading your family…"); sign-out could stay half signed-in; an idle HTTP/3 connection dropped a POST (-1005) that surfaced as "offline"; alert action labels were truncated.
+
+**Not done / needs you:**
+- Custom SMTP in Supabase before real users: the built-in mailer allows only a few emails per hour.
+- RevenueCat (premium is free), push notifications, server-side AI (insights are rule-based on real data).
+- Emergency contact add/edit was covered by unit and RLS tests but not tapped through on the simulator.
+- Test users `family.e2e@` / `senior.e2e@carecompanion.dev` and their "Sharma family" test account remain in the live project.
+
+---
+
+## 2026-09-14 (earlier) Phase 5 status as of the phase-5 branch
+
+Phase 5 Complete Production App Features implemented. Core backend and UI components complete, integration pending.
 
 ## 2026-09-14 Family dashboard on real account data (branch `phase-4`)
 

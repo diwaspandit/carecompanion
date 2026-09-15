@@ -18,3 +18,12 @@
 - 2026-09-14 (Phase 2): Medication "taken" is derived from the latest `medication_events` row on the senior's local day, not stored as a flag.
 - 2026-09-14 (Phase 2): Supabase host is stored without the scheme in xcconfig, because `//` starts a comment there. Custom keys go through `Config/Info.plist`, since generated Info.plist ignores custom `INFOPLIST_KEY_*`.
 - 2026-09-14 (Phase 2): Production mode is not wired into app startup yet. The demo stays the only launch path until Phase 5 provides sign-in and account onboarding UI.
+
+- 2026-09-15: Demo mode is removed at the product owner's direction. The app always runs against Supabase with real accounts; `DemoCareRepository`, `DemoScenarioController` and demo auth are gone from CareCore. An in-memory repository remains only in the test target.
+- 2026-09-15: Premium AI is free for now (no paywall, no fake purchase). `SubscriptionAccess`/`AccessPolicy` stay in CareCore for when RevenueCat returns. Insight and appointment prep remain rule-based summaries of real data.
+- 2026-09-15: The user's role comes from `account_members.role`. A senior's login is linked to their senior record through `account_seniors.profile_id`, set only via `claim_senior()` or by the senior creating their own record (trigger-enforced).
+- 2026-09-15: Apple Health syncs only on the linked senior's own iPhone and writes to that senior. Previously any signed-in phone could upload its owner's Health data onto the selected senior.
+- 2026-09-15: Health day keys are the phone's local calendar day stored as midnight UTC; sleep counts toward the wake-up day after merging overlapping samples. The previous code attributed sleep to the start day and shifted dates for time zones ahead of UTC.
+- 2026-09-15: Inserts use device-generated ids with ignore-duplicates so a dropped HTTP/3 connection can be retried once safely. Observed live: an idle QUIC connection hit its keep-alive limit and a POST failed with -1005.
+- 2026-09-15: Family messaging is one conversation per care account (`messages`), refreshed over realtime. No push notifications yet.
+- 2026-09-15: Schema changes are applied to the live project with the Supabase Management API from a git-ignored access token; they are tested first in `Supabase/tests/run_docker.sh`.

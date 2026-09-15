@@ -1,5 +1,7 @@
 # CareCompanion — TXST Shipaton
 
+> **Current direction (2026-09-15, product owner):** the app no longer has a demo mode, seeded data or a paywall. It runs only against Supabase with real accounts: sign-up, family and senior onboarding, live care data, Apple Health from the senior's own iPhone, and family messaging. Premium AI is free until RevenueCat is integrated. Sections below that require Demo Mode, seeded Maya/Diwas data or a Test Store purchase describe the original hackathon brief; see `docs/DECISIONS.md` and `docs/STATUS.md` for what is built.
+
 ## Mission
 
 Build a polished native iOS application called CareCompanion.

@@ -702,10 +702,16 @@ private struct AlertRow: View {
                             PlainPill(text: "Message", icon: "bubble.right", color: CareTheme.ink, fill: .white)
                         }
                         .buttonStyle(.plain)
+                        Spacer(minLength: 0)
                         Button(action: onDismiss) {
-                            PlainPill(text: dismissTitle, icon: "checkmark", color: CareTheme.secondaryText, fill: .clear)
+                            Image(systemName: "checkmark")
+                                .font(.system(size: 15, weight: .bold))
+                                .foregroundStyle(CareTheme.mutedText)
+                                .frame(width: 40, height: 40)
+                                .background(.white.opacity(0.7), in: Circle())
                         }
                         .buttonStyle(.plain)
+                        .accessibilityLabel(dismissTitle)
                     }
                 }
             }
