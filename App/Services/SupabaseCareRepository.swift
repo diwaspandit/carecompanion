@@ -2,12 +2,24 @@ import CareCore
 import Foundation
 import Supabase
 
+/// The signed-in user's own profile, available before they belong to a care account.
+struct UserProfileDetails: Equatable, Sendable, Decodable {
+    var displayName: String
+    var city: String
+    var phone: String
+
+    enum CodingKeys: String, CodingKey {
+        case city, phone
+        case displayName = "display_name"
+    }
+}
+
 /// Production CareRepository: account-scoped reads/writes through PostgREST (RLS enforced
 /// server-side) plus realtime refresh. Views never see this type, only `CareRepository`.
 @MainActor final class SupabaseCareRepository: CareRepository {
     private(set) var snapshot: CareSnapshot
     let accountID: String
-    let inviteCode: String
+    let currentProfileID: String?
 
     private let client: SupabaseClient
     private let now: () -> Date
@@ -15,14 +27,15 @@ import Supabase
     private var realtimeTasks: [Task<Void, Never>] = []
 
     private static let realtimeTables = [
-        "check_ins", "mood_entries", "medications", "medication_events",
-        "health_snapshots", "appointments", "alerts", "appointment_ai_preps"
+        "account_members", "account_seniors", "check_ins", "mood_entries", "medications", "medication_events",
+        "health_snapshots", "appointments", "alerts", "emergency_contacts", "messages"
     ]
 
-    private init(client: SupabaseClient, accountID: String, records: CareRecords, now: @escaping () -> Date) throws {
+    private init(client: SupabaseClient, accountID: String, profileID: String, records: CareRecords,
+                 now: @escaping () -> Date) throws {
         self.client = client
         self.accountID = accountID
-        self.inviteCode = records.account.inviteCode
+        self.currentProfileID = profileID
         self.now = now
         self.snapshot = try records.snapshot(now: now())
     }
@@ -32,9 +45,10 @@ import Supabase
     static func load(client: SupabaseClient, now: @escaping () -> Date = Date.init) async throws -> SupabaseCareRepository {
         do {
             let session = try await client.auth.session
+            let profileID = session.user.id.uuidString.lowercased()
             let memberships: [MembershipRow] = try await client.from("account_members")
                 .select("account_id")
-                .eq("profile_id", value: session.user.id)
+                .eq("profile_id", value: profileID)
                 .order("created_at")
                 .limit(1)
                 .execute().value
@@ -42,7 +56,35 @@ import Supabase
                 throw CareServiceError.invalidState("No care account yet")
             }
             let records = try await fetchRecords(client: client, accountID: accountID, now: now())
-            return try SupabaseCareRepository(client: client, accountID: accountID, records: records, now: now)
+            return try SupabaseCareRepository(client: client, accountID: accountID, profileID: profileID,
+                                              records: records, now: now)
+        } catch {
+            throw SupabaseErrorMapper.map(error)
+        }
+    }
+
+    // MARK: - Account bootstrap (before a repository exists)
+
+    static func loadProfile(client: SupabaseClient) async throws -> UserProfileDetails {
+        do {
+            let profileID = try await client.auth.session.user.id.uuidString.lowercased()
+            return try await client.from("profiles")
+                .select("display_name, city, phone")
+                .eq("id", value: profileID)
+                .single()
+                .execute().value
+        } catch {
+            throw SupabaseErrorMapper.map(error)
+        }
+    }
+
+    static func saveProfile(client: SupabaseClient, _ profile: UserProfileDetails) async throws {
+        do {
+            let profileID = try await client.auth.session.user.id.uuidString.lowercased()
+            try await client.from("profiles")
+                .update(ProfileUpdate(displayName: profile.displayName, city: profile.city, phone: profile.phone))
+                .eq("id", value: profileID)
+                .execute()
         } catch {
             throw SupabaseErrorMapper.map(error)
         }
@@ -64,6 +106,14 @@ import Supabase
         }
     }
 
+    static func deleteMyAccount(client: SupabaseClient) async throws {
+        do {
+            try await client.rpc("delete_my_account").execute()
+        } catch {
+            throw SupabaseErrorMapper.map(error)
+        }
+    }
+
     // MARK: - Reads
 
     func refresh() async throws {
@@ -76,47 +126,54 @@ import Supabase
     }
 
     private static func fetchRecords(client: SupabaseClient, accountID: String, now: Date) async throws -> CareRecords {
-        // Two days covers "today" in every time zone; a week of health and alert history.
+        // Two days covers "today" in every time zone; eight covers a week of history in every time zone.
         let recentEvents = iso(now.addingTimeInterval(-2 * 86_400))
-        let weekAgo = now.addingTimeInterval(-7 * 86_400)
+        let weekOfHistory = now.addingTimeInterval(-8 * 86_400)
 
         async let account: CareAccountRow = client.from("care_accounts")
             .select("id, kind, name, invite_code").eq("id", value: accountID).single().execute().value
         async let members: [AccountMemberRow] = client.from("account_members")
-            .select("id, account_id, profile_id, role, profiles(display_name, city)")
+            .select("id, account_id, profile_id, role, profiles(display_name, city, phone)")
             .eq("account_id", value: accountID).order("created_at").execute().value
         async let seniors: [AccountSeniorRow] = client.from("account_seniors")
-            .select("id, account_id, name, age, city, time_zone_identifier")
+            .select("id, account_id, name, age, city, time_zone_identifier, profile_id")
             .eq("account_id", value: accountID).is("deleted_at", value: nil).order("created_at").execute().value
         async let checkIns: [CheckInRow] = client.from("check_ins")
             .select("id, senior_id, occurred_at")
             .eq("account_id", value: accountID).gte("occurred_at", value: recentEvents).execute().value
         async let moods: [MoodEntryRow] = client.from("mood_entries")
-            .select("id, senior_id, mood, occurred_at")
-            .eq("account_id", value: accountID).gte("occurred_at", value: iso(weekAgo)).execute().value
+            .select("id, senior_id, mood, note, occurred_at")
+            .eq("account_id", value: accountID).gte("occurred_at", value: iso(weekOfHistory)).execute().value
         async let medications: [MedicationRow] = client.from("medications")
-            .select("id, senior_id, name, scheduled_time")
+            .select("id, senior_id, name, dosage, scheduled_time")
             .eq("account_id", value: accountID).is("deleted_at", value: nil).order("scheduled_time").execute().value
         async let events: [MedicationEventRow] = client.from("medication_events")
             .select("id, medication_id, status, occurred_at")
-            .eq("account_id", value: accountID).gte("occurred_at", value: recentEvents).execute().value
+            .eq("account_id", value: accountID).gte("occurred_at", value: iso(weekOfHistory)).execute().value
         async let health: [HealthSnapshotRow] = client.from("health_snapshots")
             .select("id, senior_id, snapshot_date, steps, sleep_minutes, resting_heart_rate, source")
             .eq("account_id", value: accountID)
-            .gte("snapshot_date", value: CareRecords.dateOnly.string(from: weekAgo)).execute().value
+            .gte("snapshot_date", value: CareRecords.dateOnly.string(from: weekOfHistory)).execute().value
         async let appointments: [AppointmentRow] = client.from("appointments")
             .select("id, senior_id, title, clinician, scheduled_at, location, notes")
             .eq("account_id", value: accountID).is("deleted_at", value: nil)
-            .gte("scheduled_at", value: recentEvents).execute().value
+            .gte("scheduled_at", value: iso(now.addingTimeInterval(-30 * 86_400))).execute().value
         async let alerts: [AlertRow] = client.from("alerts")
             .select("id, senior_id, occurred_at, acknowledged")
             .eq("account_id", value: accountID)
-            .or("acknowledged.eq.false,occurred_at.gte.\(iso(weekAgo))").execute().value
+            .or("acknowledged.eq.false,occurred_at.gte.\(iso(weekOfHistory))").execute().value
+        async let contacts: [EmergencyContactRow] = client.from("emergency_contacts")
+            .select("id, senior_id, name, relation, phone")
+            .eq("account_id", value: accountID).execute().value
+        async let messages: [MessageRow] = client.from("messages")
+            .select("id, sender_profile_id, body, created_at")
+            .eq("account_id", value: accountID)
+            .order("created_at", ascending: false).limit(300).execute().value
 
         return try await CareRecords(
             account: account, members: members, seniors: seniors, checkIns: checkIns, moods: moods,
             medications: medications, medicationEvents: events, health: health,
-            appointments: appointments, alerts: alerts
+            appointments: appointments, alerts: alerts, contacts: contacts, messages: messages
         )
     }
 
@@ -132,7 +189,6 @@ import Supabase
         self.channel = channel
         // One listener per table. Tasks created here inherit the repository's main-actor isolation,
         // so capturing `self` isn't a cross-isolation send (Swift 6 rejects the task-group version).
-        // Awaiting each stream suspends, so the main thread isn't blocked.
         for stream in streams {
             realtimeTasks.append(Task { [weak self] in
                 for await _ in stream {
@@ -177,13 +233,6 @@ import Supabase
                                                     mood: mood.rawValue, note: note, occurredAt: date))
     }
 
-    func toggleMedication(id: String) async throws {
-        guard let medication = snapshot.medications.first(where: { $0.id == id }) else {
-            throw CareServiceError.invalidState("Medication not found")
-        }
-        try await recordMedicationEvent(medicationID: id, taken: !medication.taken, at: now())
-    }
-
     func recordMedicationEvent(medicationID: String, taken: Bool, at date: Date) async throws {
         guard let medication = snapshot.medications.first(where: { $0.id == medicationID }) else {
             throw CareServiceError.invalidState("Medication not found")
@@ -191,6 +240,25 @@ import Supabase
         try await insert("medication_events", MedicationEventInsert(
             accountID: try account(for: medication.seniorID), seniorID: medication.seniorID,
             medicationID: medicationID, status: taken ? "taken" : "skipped", occurredAt: date))
+    }
+
+    func addMedication(seniorID: String, name: String, dosage: String, scheduledTime: String) async throws {
+        try await insert("medications", MedicationInsert(accountID: try account(for: seniorID), seniorID: seniorID,
+                                                        name: name, dosage: dosage, scheduledTime: scheduledTime))
+    }
+
+    func updateMedication(id: String, name: String, dosage: String, scheduledTime: String) async throws {
+        try await perform {
+            try await client.from("medications")
+                .update(MedicationUpdate(name: name, dosage: dosage, scheduledTime: scheduledTime))
+                .eq("id", value: id).execute()
+        }
+    }
+
+    func deleteMedication(id: String) async throws {
+        try await perform {
+            try await client.from("medications").update(SoftDelete(deletedAt: now())).eq("id", value: id).execute()
+        }
     }
 
     func upsertHealthSnapshots(_ snapshots: [HealthSnapshot]) async throws {
@@ -209,101 +277,100 @@ import Supabase
     }
 
     func saveAppointment(_ appointment: Appointment) async throws {
-        let row = AppointmentUpsert(
-            id: UUID(uuidString: appointment.id)?.uuidString.lowercased(),
-            accountID: try account(for: appointment.seniorID), seniorID: appointment.seniorID,
-            title: appointment.title, clinician: appointment.clinician, scheduledAt: appointment.date,
-            location: appointment.location, notes: appointment.notes)
+        let row = AppointmentWrite(accountID: try account(for: appointment.seniorID), seniorID: appointment.seniorID,
+                                   title: appointment.title, clinician: appointment.clinician,
+                                   scheduledAt: appointment.date, location: appointment.location, notes: appointment.notes)
         try await perform {
-            if row.id == nil {
+            if appointment.id.isEmpty {
                 try await client.from("appointments").insert(row).execute()
             } else {
-                try await client.from("appointments").upsert(row).execute()
+                try await client.from("appointments").update(row).eq("id", value: appointment.id).execute()
             }
         }
     }
 
     func deleteAppointment(id: String) async throws {
         try await perform {
-            try await client.from("appointments")
-                .update(["deleted_at": Self.iso(now())]).eq("id", value: id).execute()
+            try await client.from("appointments").update(SoftDelete(deletedAt: now())).eq("id", value: id).execute()
         }
     }
 
     func triggerSOS(seniorID: String, at date: Date) async throws {
         let row = AlertInsert(accountID: try account(for: seniorID), seniorID: seniorID, kind: "sos", occurredAt: date)
         do {
-            try await perform { try await client.from("alerts").insert(row).execute() }
+            try await client.from("alerts").insert(row).execute()
         } catch let error as PostgrestError where error.code == "23505" {
             // An open SOS already exists for this senior: SOS is idempotent.
-            try await refresh()
+        } catch {
+            throw SupabaseErrorMapper.map(error)
         }
+        try await refresh()
     }
 
     func acknowledgeAlerts(seniorID: String) async throws {
-        let userID = try? await client.auth.session.user.id.uuidString.lowercased()
         try await perform {
             try await client.from("alerts")
-                .update(AlertAcknowledgement(acknowledgedAt: now(), acknowledgedBy: userID))
+                .update(AlertAcknowledgement(acknowledgedAt: now(), acknowledgedBy: currentProfileID))
                 .eq("senior_id", value: seniorID).eq("acknowledged", value: false).execute()
         }
     }
 
-    func saveCareInsight(_ insight: CareInsight, seniorID: String) async throws {
-        try await insert("care_insights", CareInsightInsert(
-            accountID: try account(for: seniorID), seniorID: seniorID, title: insight.title,
-            summary: insight.summary, observations: insight.observations, suggestion: insight.suggestion))
-    }
-
-    func saveAppointmentPrep(_ prep: AppointmentPrep, appointmentID: String) async throws {
-        guard let appointment = snapshot.appointments.first(where: { $0.id == appointmentID }) else {
-            throw CareServiceError.invalidState("Appointment not found")
-        }
-        try await insert("appointment_ai_preps", AppointmentPrepInsert(
-            accountID: try account(for: appointment.seniorID), seniorID: appointment.seniorID,
-            appointmentID: appointmentID, title: prep.title, observations: prep.observations,
-            questions: prep.questions, safetyNote: prep.safetyNote))
-    }
-
     func addSenior(_ senior: AccountSenior) async throws {
-        try await insert("account_seniors", SeniorUpsert(
+        try await insert("account_seniors", SeniorInsert(
             accountID: accountID, name: senior.name, age: senior.age, city: senior.city,
-            timeZoneIdentifier: senior.timeZoneIdentifier))
-    }
-
-    func addMedication(seniorID: String, name: String, scheduledTime: String) async throws {
-        try await insert("medications", MedicationInsert(accountID: try account(for: seniorID), seniorID: seniorID,
-                                                        name: name, scheduledTime: scheduledTime))
-    }
-
-    func updateMedication(id: String, name: String, scheduledTime: String) async throws {
-        try await perform {
-            try await client.from("medications")
-                .update(["name": name, "scheduled_time": scheduledTime])
-                .eq("id", value: id).execute()
-        }
-    }
-
-    func deleteMedication(id: String) async throws {
-        try await perform {
-            try await client.from("medications")
-                .update(["deleted_at": Date().formatted(.iso8601)])
-                .eq("id", value: id).execute()
-        }
+            timeZoneIdentifier: senior.timeZoneIdentifier, profileID: senior.profileID))
     }
 
     func updateSenior(_ senior: AccountSenior) async throws {
         try await perform {
             try await client.from("account_seniors")
-                .update(SeniorUpsert(accountID: accountID, name: senior.name, age: senior.age,
-                                     city: senior.city, timeZoneIdentifier: senior.timeZoneIdentifier))
+                .update(SeniorUpdate(name: senior.name, age: senior.age, city: senior.city,
+                                     timeZoneIdentifier: senior.timeZoneIdentifier))
                 .eq("id", value: senior.id).execute()
         }
     }
 
-    /// Production data is never wiped from the app; reset only re-syncs from the server.
-    func reset() async {
-        try? await refresh()
+    func removeSenior(id: String) async throws {
+        try await perform {
+            try await client.from("account_seniors").update(SoftDelete(deletedAt: now())).eq("id", value: id).execute()
+        }
+    }
+
+    func claimSenior(id: String) async throws {
+        try await perform {
+            try await client.rpc("claim_senior", params: ["target_senior_id": id]).execute()
+        }
+    }
+
+    func saveEmergencyContact(_ contact: EmergencyContact) async throws {
+        let row = EmergencyContactWrite(accountID: try account(for: contact.seniorID), seniorID: contact.seniorID,
+                                        name: contact.name, relation: contact.relation, phone: contact.phone)
+        try await perform {
+            if contact.id.isEmpty {
+                try await client.from("emergency_contacts").insert(row).execute()
+            } else {
+                try await client.from("emergency_contacts").update(row).eq("id", value: contact.id).execute()
+            }
+        }
+    }
+
+    func deleteEmergencyContact(id: String) async throws {
+        try await perform {
+            try await client.from("emergency_contacts").delete().eq("id", value: id).execute()
+        }
+    }
+
+    func sendMessage(_ body: String) async throws {
+        try await insert("messages", MessageInsert(accountID: accountID, body: body))
+    }
+
+    func updateProfile(displayName: String, city: String, phone: String) async throws {
+        guard let currentProfileID else { throw CareServiceError.unauthorized }
+        try await perform {
+            try await client.from("profiles")
+                .update(ProfileUpdate(displayName: displayName, city: city, phone: phone))
+                .eq("id", value: currentProfileID).execute()
+        }
     }
 
     // MARK: - Helpers
@@ -323,8 +390,6 @@ import Supabase
     private func perform(_ write: () async throws -> Void) async throws {
         do {
             try await write()
-        } catch let error as PostgrestError where error.code == "23505" {
-            throw error
         } catch {
             throw SupabaseErrorMapper.map(error)
         }
@@ -343,6 +408,16 @@ private struct MembershipRow: Decodable {
     enum CodingKeys: String, CodingKey { case accountID = "account_id" }
 }
 
+private struct ProfileUpdate: Encodable, Sendable {
+    let displayName: String, city: String, phone: String
+    enum CodingKeys: String, CodingKey { case city, phone, displayName = "display_name" }
+}
+
+private struct SoftDelete: Encodable, Sendable {
+    let deletedAt: Date
+    enum CodingKeys: String, CodingKey { case deletedAt = "deleted_at" }
+}
+
 private struct CheckInInsert: Encodable, Sendable {
     let accountID: String, seniorID: String, occurredAt: Date
     enum CodingKeys: String, CodingKey {
@@ -358,10 +433,15 @@ private struct MoodInsert: Encodable, Sendable {
 }
 
 private struct MedicationInsert: Encodable, Sendable {
-    let accountID: String, seniorID: String, name: String, scheduledTime: String
+    let accountID: String, seniorID: String, name: String, dosage: String, scheduledTime: String
     enum CodingKeys: String, CodingKey {
-        case name, accountID = "account_id", seniorID = "senior_id", scheduledTime = "scheduled_time"
+        case name, dosage, accountID = "account_id", seniorID = "senior_id", scheduledTime = "scheduled_time"
     }
+}
+
+private struct MedicationUpdate: Encodable, Sendable {
+    let name: String, dosage: String, scheduledTime: String
+    enum CodingKeys: String, CodingKey { case name, dosage, scheduledTime = "scheduled_time" }
 }
 
 private struct MedicationEventInsert: Encodable, Sendable {
@@ -382,25 +462,12 @@ private struct HealthSnapshotUpsert: Encodable, Sendable {
     }
 }
 
-private struct AppointmentUpsert: Encodable, Sendable {
-    let id: String?
+private struct AppointmentWrite: Encodable, Sendable {
     let accountID: String, seniorID: String, title: String, clinician: String
     let scheduledAt: Date, location: String, notes: String
     enum CodingKeys: String, CodingKey {
-        case id, title, clinician, location, notes, accountID = "account_id",
+        case title, clinician, location, notes, accountID = "account_id",
              seniorID = "senior_id", scheduledAt = "scheduled_at"
-    }
-
-    func encode(to encoder: Encoder) throws {
-        var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encodeIfPresent(id, forKey: .id)
-        try container.encode(accountID, forKey: .accountID)
-        try container.encode(seniorID, forKey: .seniorID)
-        try container.encode(title, forKey: .title)
-        try container.encode(clinician, forKey: .clinician)
-        try container.encode(scheduledAt, forKey: .scheduledAt)
-        try container.encode(location, forKey: .location)
-        try container.encode(notes, forKey: .notes)
     }
 }
 
@@ -420,26 +487,39 @@ private struct AlertAcknowledgement: Encodable, Sendable {
     }
 }
 
-private struct CareInsightInsert: Encodable, Sendable {
-    let accountID: String, seniorID: String, title: String, summary: String
-    let observations: [String], suggestion: String
+private struct SeniorInsert: Encodable, Sendable {
+    let accountID: String, name: String, age: Int, city: String, timeZoneIdentifier: String, profileID: String?
     enum CodingKeys: String, CodingKey {
-        case title, summary, observations, suggestion, accountID = "account_id", seniorID = "senior_id"
+        case name, age, city, accountID = "account_id", timeZoneIdentifier = "time_zone_identifier",
+             profileID = "profile_id"
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(accountID, forKey: .accountID)
+        try container.encode(name, forKey: .name)
+        try container.encode(age, forKey: .age)
+        try container.encode(city, forKey: .city)
+        try container.encode(timeZoneIdentifier, forKey: .timeZoneIdentifier)
+        try container.encodeIfPresent(profileID, forKey: .profileID)
     }
 }
 
-private struct AppointmentPrepInsert: Encodable, Sendable {
-    let accountID: String, seniorID: String, appointmentID: String, title: String
-    let observations: [String], questions: [String], safetyNote: String
+private struct SeniorUpdate: Encodable, Sendable {
+    let name: String, age: Int, city: String, timeZoneIdentifier: String
     enum CodingKeys: String, CodingKey {
-        case title, observations, questions, accountID = "account_id", seniorID = "senior_id",
-             appointmentID = "appointment_id", safetyNote = "safety_note"
+        case name, age, city, timeZoneIdentifier = "time_zone_identifier"
     }
 }
 
-private struct SeniorUpsert: Encodable, Sendable {
-    let accountID: String, name: String, age: Int, city: String, timeZoneIdentifier: String
+private struct EmergencyContactWrite: Encodable, Sendable {
+    let accountID: String, seniorID: String, name: String, relation: String, phone: String
     enum CodingKeys: String, CodingKey {
-        case name, age, city, accountID = "account_id", timeZoneIdentifier = "time_zone_identifier"
+        case name, relation, phone, accountID = "account_id", seniorID = "senior_id"
     }
+}
+
+private struct MessageInsert: Encodable, Sendable {
+    let accountID: String, body: String
+    enum CodingKeys: String, CodingKey { case body, accountID = "account_id" }
 }

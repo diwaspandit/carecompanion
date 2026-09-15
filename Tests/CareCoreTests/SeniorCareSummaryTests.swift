@@ -3,10 +3,10 @@ import XCTest
 
 final class SeniorCareSummaryTests: XCTestCase {
     private let day: TimeInterval = 86_400
-    private let reference = DemoCareRepository.referenceDate
+    private let reference = InMemoryCareRepository.referenceDate
 
     private func demoSnapshot() async -> CareSnapshot {
-        await MainActor.run { DemoCareRepository().snapshot }
+        await MainActor.run { InMemoryCareRepository().snapshot }
     }
 
     private func health(_ seniorID: String, daysAgo: Int, steps: Int, sleep: Int, heart: Int, source: String = "healthkit") -> HealthSnapshot {
@@ -24,7 +24,7 @@ final class SeniorCareSummaryTests: XCTestCase {
 
     func testSummaryUsesRealSeniorAndMedicationCounts() async throws {
         let snapshot = await demoSnapshot()
-        let summary = try XCTUnwrap(SeniorCareSummary(snapshot: snapshot, seniorID: DemoCareRepository.mayaID))
+        let summary = try XCTUnwrap(SeniorCareSummary(snapshot: snapshot, seniorID: InMemoryCareRepository.mayaID))
         XCTAssertEqual(summary.senior.name, "Maya Sharma")
         XCTAssertEqual(summary.medicationsTaken, 3)
         XCTAssertEqual(summary.medicationsTotal, 4)
@@ -40,7 +40,7 @@ final class SeniorCareSummaryTests: XCTestCase {
 
     func testHealthHistoryKeepsOneEntryPerDayPreferringHealthKit() async throws {
         var snapshot = await demoSnapshot()
-        let id = DemoCareRepository.mayaID
+        let id = InMemoryCareRepository.mayaID
         snapshot.health = [
             health(id, daysAgo: 1, steps: 500, sleep: 300, heart: 70, source: "demo"),
             health(id, daysAgo: 0, steps: 900, sleep: 360, heart: 68, source: "demo"),
@@ -55,7 +55,7 @@ final class SeniorCareSummaryTests: XCTestCase {
 
     func testBaselineIgnoresMissingMetricsAndFlagsLowActivity() async throws {
         var snapshot = await demoSnapshot()
-        let id = DemoCareRepository.mayaID
+        let id = InMemoryCareRepository.mayaID
         snapshot.health = [
             health(id, daysAgo: 0, steps: 1000, sleep: 0, heart: 0),
             health(id, daysAgo: 1, steps: 4000, sleep: 420, heart: 70),
@@ -71,13 +71,13 @@ final class SeniorCareSummaryTests: XCTestCase {
 
     func testSteadyActivityIsNotFlagged() async throws {
         let snapshot = await demoSnapshot()
-        let summary = try XCTUnwrap(SeniorCareSummary(snapshot: snapshot, seniorID: DemoCareRepository.mayaID))
+        let summary = try XCTUnwrap(SeniorCareSummary(snapshot: snapshot, seniorID: InMemoryCareRepository.mayaID))
         XCTAssertFalse(summary.isStepsBelowBaseline)
     }
 
     func testCareInsightDescribesTheRealSenior() async throws {
         var snapshot = await renamedSnapshot()
-        let id = DemoCareRepository.mayaID
+        let id = InMemoryCareRepository.mayaID
         snapshot.health = [
             health(id, daysAgo: 0, steps: 1000, sleep: 360, heart: 71),
             health(id, daysAgo: 1, steps: 4000, sleep: 420, heart: 70)
@@ -103,13 +103,12 @@ final class SeniorCareSummaryTests: XCTestCase {
     }
 
     func testSelectingAnotherSeniorClearsPerSeniorAIOutput() async throws {
-        let repository = await MainActor.run { DemoCareRepository() }
+        let repository = await MainActor.run { InMemoryCareRepository() }
         let state = await MainActor.run { AppState(repository: repository) }
         let second = AccountSenior(id: "senior-2", accountID: "account-sharma", name: "Ramesh Sharma",
                                    age: 78, city: "Pokhara", timeZoneIdentifier: "Asia/Kathmandu")
         try await repository.addSenior(second)
         await state.refresh()
-        await MainActor.run { state.unlockPremiumPreview() }
         await state.loadCareInsight()
         await MainActor.run {
             XCTAssertNotNil(state.careInsight)
@@ -123,7 +122,7 @@ final class SeniorCareSummaryTests: XCTestCase {
 
     func testMoodHistoryKeepsLatestMoodPerSeniorLocalDay() async throws {
         var snapshot = await demoSnapshot()
-        let id = DemoCareRepository.mayaID
+        let id = InMemoryCareRepository.mayaID
         snapshot.moods = [
             MoodEntry(id: "m1", seniorID: id, mood: .low, date: reference.addingTimeInterval(-day)),
             MoodEntry(id: "m2", seniorID: id, mood: .okay, date: reference),

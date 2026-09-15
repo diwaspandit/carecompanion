@@ -19,3 +19,4 @@ for migration in "$root"/Supabase/migrations/*.sql; do
   run -f "$migration"
 done
 run -f "$root/Supabase/tests/rls_test.sql"
+run -f "$root/Supabase/tests/rls_production_test.sql"

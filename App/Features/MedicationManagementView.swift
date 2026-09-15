@@ -1,192 +1,127 @@
-import SwiftUI
 import CareCore
+import SwiftUI
 
-/// Full medication CRUD with add, edit, delete, and adherence tracking
+/// Add, edit and remove the selected senior's medicines.
 struct MedicationManagementView: View {
     @Environment(AppState.self) private var state
     @Environment(\.dismiss) private var dismiss
-    @State private var showingAddMedication = false
-    @State private var editingMedication: Medication?
-
-    private var medications: [Medication] {
-        state.snapshot.medications.filter { $0.seniorID == state.selectedSeniorID }
-    }
+    @State private var showingAdd = false
+    @State private var editing: Medication?
 
     var body: some View {
         NavigationStack {
             List {
                 Section {
+                    let medications = MedicationTime.sorted(state.medications)
                     if medications.isEmpty {
-                        ContentUnavailableView(
-                            "No Medications",
-                            systemImage: "capsule",
-                            description: Text("Add medications to track daily adherence")
-                        )
-                    } else {
-                        ForEach(medications) { medication in
-                            MedicationRowView(medication: medication, onEdit: {
-                                editingMedication = medication
-                            })
+                        ContentUnavailableView("No medicines", systemImage: "pills",
+                                               description: Text("Add each medicine with its dose and time."))
+                    }
+                    ForEach(medications) { medication in
+                        Button { editing = medication } label: {
+                            HStack {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(medication.name).font(.system(size: 17, weight: .semibold)).foregroundStyle(CareTheme.ink)
+                                    Text([medication.dosage, medication.scheduledTime].filter { !$0.isEmpty }.joined(separator: " · "))
+                                        .font(.system(size: 14)).foregroundStyle(CareTheme.secondaryText)
+                                }
+                                Spacer()
+                                Image(systemName: medication.taken ? "checkmark.circle.fill" : "circle")
+                                    .foregroundStyle(medication.taken ? CareTheme.sage : CareTheme.secondaryText)
+                                    .accessibilityLabel(medication.taken ? "Taken today" : "Not taken today")
+                            }
                         }
                     }
-                }
-
-                Section {
-                    Button {
-                        showingAddMedication = true
-                    } label: {
-                        Label("Add Medication", systemImage: "plus")
+                    .onDelete { offsets in
+                        let ids = offsets.map { medications[$0].id }
+                        Task { for id in ids { await state.deleteMedication(id: id) } }
                     }
+                } footer: {
+                    Text("Changes appear on every family member's phone.")
+                }
+                Section {
+                    Button { showingAdd = true } label: {
+                        Label("Add medicine", systemImage: "plus")
+                    }
+                    .accessibilityIdentifier("medications.add")
                 }
             }
-            .navigationTitle("Medications")
+            .navigationTitle("Medicines")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
+                ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }
                 }
             }
-            .sheet(isPresented: $showingAddMedication) {
-                AddMedicationView()
-            }
-            .sheet(item: $editingMedication) { medication in
-                EditMedicationView(medication: medication)
-            }
+            .sheet(isPresented: $showingAdd) { MedicationFormView(medication: nil) }
+            .sheet(item: $editing) { MedicationFormView(medication: $0) }
         }
     }
 }
 
-private struct MedicationRowView: View {
+private struct MedicationFormView: View {
     @Environment(AppState.self) private var state
-    let medication: Medication
-    let onEdit: () -> Void
-    @State private var showingDeleteConfirmation = false
-
-    var body: some View {
-        HStack {
-            Button {
-                Task { await state.toggleMedication(id: medication.id) }
-            } label: {
-                HStack(spacing: 12) {
-                    Image(systemName: medication.taken ? "checkmark.circle.fill" : "circle")
-                        .font(.system(size: 24))
-                        .foregroundStyle(medication.taken ? CareTheme.sage : CareTheme.secondaryText)
-
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(medication.name)
-                            .font(.system(size: 17, weight: .semibold))
-                            .foregroundStyle(CareTheme.ink)
-                        Text(medication.scheduledTime)
-                            .font(.system(size: 14))
-                            .foregroundStyle(CareTheme.secondaryText)
-                    }
-                }
-            }
-            .buttonStyle(.plain)
-
-            Spacer()
-
-            Menu {
-                Button {
-                    onEdit()
-                } label: {
-                    Label("Edit", systemImage: "pencil")
-                }
-
-                Button(role: .destructive) {
-                    showingDeleteConfirmation = true
-                } label: {
-                    Label("Delete", systemImage: "trash")
-                }
-            } label: {
-                Image(systemName: "ellipsis.circle")
-                    .font(.system(size: 20))
-                    .foregroundStyle(CareTheme.secondaryText)
-            }
-        }
-        .confirmationDialog("Delete Medication", isPresented: $showingDeleteConfirmation) {
-            Button("Delete", role: .destructive) {
-                Task { await state.deleteMedication(id: medication.id) }
-            }
-        } message: {
-            Text("Are you sure you want to delete \(medication.name)?")
-        }
-    }
-}
-
-private struct AddMedicationView: View {
     @Environment(\.dismiss) private var dismiss
-    @Environment(AppState.self) private var state
+    let medication: Medication?
+
     @State private var name = ""
-    @State private var scheduledTime = "8:00 AM"
+    @State private var dosage = ""
+    @State private var time = MedicationTime.date(from: "8:00 AM")
+    @State private var isSaving = false
 
     var body: some View {
         NavigationStack {
             Form {
-                Section("Medication Details") {
-                    TextField("Name", text: $name)
-                    TextField("Scheduled Time", text: $scheduledTime)
-                        .textInputAutocapitalization(.never)
+                Section("Medicine") {
+                    TextField("Name, e.g. Amlodipine", text: $name)
+                        .accessibilityIdentifier("medication.form.name")
+                    TextField("Dose, e.g. 5 mg, 1 tablet", text: $dosage)
+                        .accessibilityIdentifier("medication.form.dosage")
+                    DatePicker("Time", selection: $time, displayedComponents: .hourAndMinute)
                 }
-
-                Section {
-                    Button("Add Medication") {
-                        Task {
-                            await state.addMedication(name: name, scheduledTime: scheduledTime)
-                            dismiss()
+                if let medication {
+                    Section {
+                        Button("Delete medicine", role: .destructive) {
+                            Task {
+                                await state.deleteMedication(id: medication.id)
+                                dismiss()
+                            }
                         }
                     }
-                    .disabled(name.isEmpty || scheduledTime.isEmpty)
                 }
             }
-            .navigationTitle("Add Medication")
+            .navigationTitle(medication == nil ? "Add medicine" : "Edit medicine")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
                 }
-            }
-        }
-    }
-}
-
-private struct EditMedicationView: View {
-    @Environment(\.dismiss) private var dismiss
-    @Environment(AppState.self) private var state
-    let medication: Medication
-    @State private var name = ""
-    @State private var scheduledTime = ""
-
-    var body: some View {
-        NavigationStack {
-            Form {
-                Section("Medication Details") {
-                    TextField("Name", text: $name)
-                    TextField("Scheduled Time", text: $scheduledTime)
-                        .textInputAutocapitalization(.never)
-                }
-
-                Section {
-                    Button("Save Changes") {
-                        Task {
-                            await state.updateMedication(id: medication.id, name: name, scheduledTime: scheduledTime)
-                            dismiss()
-                        }
-                    }
-                    .disabled(name.isEmpty || scheduledTime.isEmpty)
-                }
-            }
-            .navigationTitle("Edit Medication")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") { save() }
+                        .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty || isSaving)
+                        .accessibilityIdentifier("medication.form.save")
                 }
             }
             .onAppear {
+                guard let medication else { return }
                 name = medication.name
-                scheduledTime = medication.scheduledTime
+                dosage = medication.dosage
+                time = MedicationTime.date(from: medication.scheduledTime)
             }
+        }
+    }
+
+    private func save() {
+        let scheduled = MedicationTime.string(from: time)
+        Task {
+            isSaving = true
+            let saved = if let medication {
+                await state.updateMedication(id: medication.id, name: name, dosage: dosage, scheduledTime: scheduled)
+            } else {
+                await state.addMedication(name: name, dosage: dosage, scheduledTime: scheduled)
+            }
+            isSaving = false
+            if saved { dismiss() }
         }
     }
 }

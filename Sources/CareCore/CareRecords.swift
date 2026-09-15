@@ -19,9 +19,16 @@ public struct AccountMemberRow: Codable, Equatable, Sendable {
     public struct Profile: Codable, Equatable, Sendable {
         public var displayName: String
         public var city: String
+        public var phone: String
+
+        public init(displayName: String, city: String = "", phone: String = "") {
+            self.displayName = displayName
+            self.city = city
+            self.phone = phone
+        }
 
         enum CodingKeys: String, CodingKey {
-            case city
+            case city, phone
             case displayName = "display_name"
         }
     }
@@ -47,11 +54,13 @@ public struct AccountSeniorRow: Codable, Equatable, Sendable {
     public var age: Int
     public var city: String
     public var timeZoneIdentifier: String
+    public var profileID: String?
 
     enum CodingKeys: String, CodingKey {
         case id, name, age, city
         case accountID = "account_id"
         case timeZoneIdentifier = "time_zone_identifier"
+        case profileID = "profile_id"
     }
 }
 
@@ -85,10 +94,11 @@ public struct MedicationRow: Codable, Equatable, Sendable {
     public var id: String
     public var seniorID: String
     public var name: String
+    public var dosage: String = ""
     public var scheduledTime: String
 
     enum CodingKeys: String, CodingKey {
-        case id, name
+        case id, name, dosage
         case seniorID = "senior_id"
         case scheduledTime = "scheduled_time"
     }
@@ -155,6 +165,32 @@ public struct AlertRow: Codable, Equatable, Sendable {
     }
 }
 
+public struct EmergencyContactRow: Codable, Equatable, Sendable {
+    public var id: String
+    public var seniorID: String
+    public var name: String
+    public var relation: String
+    public var phone: String
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, relation, phone
+        case seniorID = "senior_id"
+    }
+}
+
+public struct MessageRow: Codable, Equatable, Sendable {
+    public var id: String
+    public var senderProfileID: String?
+    public var body: String
+    public var createdAt: Date
+
+    enum CodingKeys: String, CodingKey {
+        case id, body
+        case senderProfileID = "sender_profile_id"
+        case createdAt = "created_at"
+    }
+}
+
 public struct CareRecords: Equatable, Sendable {
     public var account: CareAccountRow
     public var members: [AccountMemberRow]
@@ -166,11 +202,14 @@ public struct CareRecords: Equatable, Sendable {
     public var health: [HealthSnapshotRow]
     public var appointments: [AppointmentRow]
     public var alerts: [AlertRow]
+    public var contacts: [EmergencyContactRow]
+    public var messages: [MessageRow]
 
     public init(account: CareAccountRow, members: [AccountMemberRow], seniors: [AccountSeniorRow],
                 checkIns: [CheckInRow], moods: [MoodEntryRow], medications: [MedicationRow],
                 medicationEvents: [MedicationEventRow], health: [HealthSnapshotRow],
-                appointments: [AppointmentRow], alerts: [AlertRow]) {
+                appointments: [AppointmentRow], alerts: [AlertRow],
+                contacts: [EmergencyContactRow] = [], messages: [MessageRow] = []) {
         self.account = account
         self.members = members
         self.seniors = seniors
@@ -181,10 +220,12 @@ public struct CareRecords: Equatable, Sendable {
         self.health = health
         self.appointments = appointments
         self.alerts = alerts
+        self.contacts = contacts
+        self.messages = messages
     }
 
-    /// "Today" is evaluated in each senior's own time zone, so Diwas in Austin sees
-    /// Maya's Kathmandu day rather than his own.
+    /// "Today" is evaluated in each senior's own time zone, so a caregiver in Austin sees
+    /// a Kathmandu senior's day rather than their own.
     public func snapshot(now: Date) throws -> CareSnapshot {
         guard let kind = AccountKind(rawValue: account.kind) else {
             throw CareServiceError.invalidState("Unknown account kind: \(account.kind)")
@@ -200,20 +241,21 @@ public struct CareRecords: Equatable, Sendable {
 
         let latestEventByMedication = Dictionary(grouping: medicationEvents, by: \.medicationID)
             .compactMapValues { $0.max { $0.occurredAt < $1.occurredAt } }
+        let seniorByMedication = Dictionary(uniqueKeysWithValues: medications.map { ($0.id, $0.seniorID) })
 
         return CareSnapshot(
-            account: CareAccount(id: account.id, kind: kind, name: account.name),
+            account: CareAccount(id: account.id, kind: kind, name: account.name, inviteCode: account.inviteCode),
             members: try members.map { row in
                 guard let role = CareRole(rawValue: row.role) else {
                     throw CareServiceError.invalidState("Unknown member role: \(row.role)")
                 }
-                return AccountMember(id: row.id, accountID: row.accountID,
-                                     name: row.profile?.displayName ?? "",
-                                     city: row.profile?.city ?? "", role: role)
+                return AccountMember(id: row.id, accountID: row.accountID, profileID: row.profileID,
+                                     name: row.profile?.displayName ?? "", city: row.profile?.city ?? "",
+                                     phone: row.profile?.phone ?? "", role: role)
             },
             seniors: seniors.map {
                 AccountSenior(id: $0.id, accountID: $0.accountID, name: $0.name, age: $0.age,
-                              city: $0.city, timeZoneIdentifier: $0.timeZoneIdentifier)
+                              city: $0.city, timeZoneIdentifier: $0.timeZoneIdentifier, profileID: $0.profileID)
             },
             checkIns: checkIns
                 .filter { isSeniorToday($0.occurredAt, $0.seniorID) }
@@ -230,9 +272,19 @@ public struct CareRecords: Equatable, Sendable {
             medications: medications.map { row in
                 let latest = latestEventByMedication[row.id]
                 let takenToday = latest.map { $0.status == "taken" && isSeniorToday($0.occurredAt, row.seniorID) } ?? false
-                return Medication(id: row.id, seniorID: row.seniorID, name: row.name,
+                return Medication(id: row.id, seniorID: row.seniorID, name: row.name, dosage: row.dosage,
                                   scheduledTime: row.scheduledTime, taken: takenToday)
             },
+            medicationEvents: try medicationEvents
+                .compactMap { row -> MedicationEvent? in
+                    guard let seniorID = seniorByMedication[row.medicationID] else { return nil }
+                    guard let status = MedicationEventStatus(rawValue: row.status) else {
+                        throw CareServiceError.invalidState("Unknown medication event status: \(row.status)")
+                    }
+                    return MedicationEvent(id: row.id, medicationID: row.medicationID, seniorID: seniorID,
+                                           status: status, date: row.occurredAt)
+                }
+                .sorted { $0.date < $1.date },
             health: try health
                 .map { row in
                     guard let date = Self.dateOnly.date(from: row.snapshotDate) else {
@@ -247,7 +299,13 @@ public struct CareRecords: Equatable, Sendable {
                 .sorted { $0.scheduledAt < $1.scheduledAt }
                 .map { Appointment(id: $0.id, seniorID: $0.seniorID, title: $0.title, clinician: $0.clinician,
                                    date: $0.scheduledAt, location: $0.location, notes: $0.notes) },
-            alerts: alerts.map { CareAlert(id: $0.id, seniorID: $0.seniorID, date: $0.occurredAt, acknowledged: $0.acknowledged) }
+            alerts: alerts.map { CareAlert(id: $0.id, seniorID: $0.seniorID, date: $0.occurredAt, acknowledged: $0.acknowledged) },
+            contacts: contacts
+                .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+                .map { EmergencyContact(id: $0.id, seniorID: $0.seniorID, name: $0.name, relation: $0.relation, phone: $0.phone) },
+            messages: messages
+                .sorted { $0.createdAt < $1.createdAt }
+                .map { CareMessage(id: $0.id, senderProfileID: $0.senderProfileID, body: $0.body, date: $0.createdAt) }
         )
     }
 

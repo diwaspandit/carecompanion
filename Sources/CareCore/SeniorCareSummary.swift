@@ -1,44 +1,74 @@
 import Foundation
 
-/// Everything the family dashboard and AI summaries know about one senior, derived from the care snapshot.
+/// Everything the dashboards and AI summaries know about one senior, derived from the care snapshot.
 public struct SeniorCareSummary: Identifiable, Equatable, Sendable {
+    public struct Adherence: Equatable, Sendable {
+        public let taken: Int
+        public let expected: Int
+
+        public var fraction: Double { expected == 0 ? 0 : Double(taken) / Double(expected) }
+    }
+
     public let senior: AccountSenior
+    /// The account member who is this senior, when they use the app on their own phone.
+    public let linkedMember: AccountMember?
     public let checkInDate: Date?
     public let mood: Mood?
     public let moodNote: String?
     /// Latest mood per day in the senior's time zone, oldest first, at most seven days.
     public let moodHistory: [MoodEntry]
     public let medications: [Medication]
+    /// Doses marked taken over the last seven local days, counted from the first recorded event.
+    public let adherence: Adherence?
     /// One entry per day, newest first. HealthKit values win over other sources for the same day.
     public let healthHistory: [HealthSnapshot]
     public let hasEmergency: Bool
+    public let openAlertDate: Date?
     public let nextAppointment: Appointment?
+    public let contacts: [EmergencyContact]
 
-    public init?(snapshot: CareSnapshot, seniorID: String) {
+    public init?(snapshot: CareSnapshot, seniorID: String, now: Date = Date()) {
         guard let senior = snapshot.seniors.first(where: { $0.id == seniorID }) else { return nil }
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: senior.timeZoneIdentifier) ?? .gmt
+
         self.senior = senior
+        linkedMember = senior.profileID.flatMap { profileID in snapshot.members.first { $0.profileID == profileID } }
         checkInDate = snapshot.checkIns.filter { $0.seniorID == seniorID }.map(\.date).max()
+
         let seniorMoods = snapshot.moods.filter { $0.seniorID == seniorID }
         let latestMood = seniorMoods.max { $0.date < $1.date }
         mood = latestMood?.mood
         moodNote = latestMood?.note
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = TimeZone(identifier: senior.timeZoneIdentifier) ?? .gmt
         moodHistory = Array(Dictionary(grouping: seniorMoods) { calendar.startOfDay(for: $0.date) }
             .values
             .compactMap { entries in entries.max { $0.date < $1.date } }
             .sorted { $0.date < $1.date }
             .suffix(7))
+
         medications = snapshot.medications.filter { $0.seniorID == seniorID }
+        adherence = Self.weeklyAdherence(medications: medications,
+                                         events: snapshot.medicationEvents.filter { $0.seniorID == seniorID },
+                                         calendar: calendar, now: now)
         healthHistory = Self.oneEntryPerDay(snapshot.health.filter { $0.seniorID == seniorID })
-        hasEmergency = snapshot.alerts.contains { $0.seniorID == seniorID && !$0.acknowledged }
-        nextAppointment = snapshot.appointments.filter { $0.seniorID == seniorID }.min { $0.date < $1.date }
+
+        let openAlerts = snapshot.alerts.filter { $0.seniorID == seniorID && !$0.acknowledged }
+        hasEmergency = !openAlerts.isEmpty
+        openAlertDate = openAlerts.map(\.date).max()
+        nextAppointment = snapshot.appointments
+            .filter { $0.seniorID == seniorID && $0.date >= now.addingTimeInterval(-3600) }
+            .min { $0.date < $1.date }
+        contacts = snapshot.contacts.filter { $0.seniorID == seniorID }
     }
 
     public var id: String { senior.id }
     public var firstName: String { senior.name.split(separator: " ").first.map(String.init) ?? senior.name }
     public var initials: String {
         String(senior.name.split(separator: " ").prefix(2).compactMap(\.first)).uppercased()
+    }
+    public var phone: String? {
+        guard let phone = linkedMember?.phone, !phone.isEmpty else { return nil }
+        return phone
     }
     public var isCheckedIn: Bool { checkInDate != nil }
     public var medicationsTaken: Int { medications.filter(\.taken).count }
@@ -49,6 +79,7 @@ public struct SeniorCareSummary: Identifiable, Equatable, Sendable {
     /// Average steps across the days before the latest one, ignoring days with no step data.
     public var baselineSteps: Int? { Self.average(healthHistory.dropFirst().map(\.steps)) }
     public var averageSleepMinutes: Int? { Self.average(healthHistory.map(\.sleepMinutes)) }
+    public var averageSteps: Int? { Self.average(healthHistory.map(\.steps)) }
     public var restingHeartRateRange: ClosedRange<Int>? {
         let values = healthHistory.map(\.restingHeartRate).filter { $0 > 0 }
         guard let low = values.min(), let high = values.max() else { return nil }
@@ -82,6 +113,9 @@ public struct SeniorCareSummary: Identifiable, Equatable, Sendable {
             var line = "\(medicationsTaken) of \(medicationsTotal) medications are marked taken today."
             if !missedMedications.isEmpty { line += " Not yet taken: \(Self.list(missedMedications.map(\.name)))." }
             lines.append(line)
+        }
+        if let adherence, adherence.expected > 0 {
+            lines.append("\(adherence.taken) of \(adherence.expected) doses marked taken over the past week.")
         }
         if let mood {
             var line = "Latest mood recorded: \(mood.rawValue)."
@@ -143,5 +177,21 @@ public struct SeniorCareSummary: Identifiable, Equatable, Sendable {
             .values
             .compactMap { day in day.first { $0.source == "healthkit" } ?? day.max { $0.date < $1.date } }
             .sorted { $0.date > $1.date }
+    }
+
+    private static func weeklyAdherence(medications: [Medication], events: [MedicationEvent],
+                                        calendar: Calendar, now: Date) -> Adherence? {
+        guard !medications.isEmpty else { return nil }
+        let today = calendar.startOfDay(for: now)
+        guard let windowStart = calendar.date(byAdding: .day, value: -6, to: today) else { return nil }
+        let medicationIDs = Set(medications.map(\.id))
+        let recent = events.filter { medicationIDs.contains($0.medicationID) && $0.date >= windowStart && $0.date <= now }
+        let firstDay = recent.map { calendar.startOfDay(for: $0.date) }.min() ?? today
+        let trackedDays = (calendar.dateComponents([.day], from: firstDay, to: today).day ?? 0) + 1
+        let latestPerDose = Dictionary(grouping: recent) {
+            "\($0.medicationID)|\(calendar.startOfDay(for: $0.date).timeIntervalSince1970)"
+        }.compactMapValues { $0.max { $0.date < $1.date } }
+        let taken = latestPerDose.values.filter { $0.status == .taken }.count
+        return Adherence(taken: taken, expected: medications.count * trackedDays)
     }
 }

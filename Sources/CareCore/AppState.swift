@@ -2,50 +2,71 @@ import Foundation
 import Observation
 
 @MainActor @Observable public final class AppState {
-    public var role: CareRole?
-    public var screen: AppScreen = .onboarding
     public var seniorTab: SeniorTab = .home
     public var familyTab: FamilyTab = .dashboard
-    public var paywallContext: PaywallContext?
     public var toastMessage: String?
     public var careInsight: CareInsight?
     public var appointmentPrep: AppointmentPrep?
     public private(set) var snapshot: CareSnapshot
-    public var subscription = SubscriptionAccess()
-    public internal(set) var isPremiumPreview = false
-    public internal(set) var isAppointmentPreparedPreview = false
     public private(set) var selectedSeniorID: String
-    public var healthSyncStatus: SyncStatus = SyncStatus()
-    @ObservationIgnored public var healthProvider: (any HealthDataProvider)?
+    public var healthSyncStatus = SyncStatus()
+    @ObservationIgnored public let healthProvider: (any HealthDataProvider)?
     @ObservationIgnored private let repository: any CareRepository
+    @ObservationIgnored private let aiService: any AIService
     @ObservationIgnored private let now: () -> Date
+    @ObservationIgnored private var healthObserver: (any NSObjectProtocol)?
 
     public init(
         repository: any CareRepository,
         healthProvider: (any HealthDataProvider)? = nil,
-        now: @escaping () -> Date = { DemoCareRepository.referenceDate }
+        aiService: any AIService = MockAIService(),
+        now: @escaping () -> Date = Date.init
     ) {
         self.repository = repository
         self.healthProvider = healthProvider
+        self.aiService = aiService
         self.now = now
         snapshot = repository.snapshot
-        selectedSeniorID = repository.snapshot.seniors.first?.id ?? ""
+        selectedSeniorID = Self.defaultSeniorID(in: repository.snapshot, profileID: repository.currentProfileID)
     }
+
+    // MARK: - Who is using the app
+
+    public var currentProfileID: String? { repository.currentProfileID }
+    public var currentMember: AccountMember? {
+        guard let currentProfileID else { return nil }
+        return snapshot.members.first { $0.profileID == currentProfileID }
+    }
+    public var role: CareRole { currentMember?.role ?? .family }
+    /// The senior record that belongs to the signed-in user, if they are the senior.
+    public var linkedSenior: AccountSenior? {
+        guard let currentProfileID else { return nil }
+        return snapshot.seniors.first { $0.profileID == currentProfileID }
+    }
+    public var needsSeniorLink: Bool { role == .senior && linkedSenior == nil }
+    /// Only the senior's own phone holds their Apple Health data.
+    public var canSyncHealth: Bool { healthProvider != nil && linkedSenior != nil }
+
+    // MARK: - Selected senior
+
     public var selectedSenior: AccountSenior? { snapshot.seniors.first { $0.id == selectedSeniorID } }
-    public var isCheckedIn: Bool { snapshot.checkIns.contains { $0.seniorID == selectedSeniorID } }
-    public var currentMood: Mood? { snapshot.moods.last { $0.seniorID == selectedSeniorID }?.mood }
-    public var hasEmergency: Bool { snapshot.alerts.contains { $0.seniorID == selectedSeniorID && !$0.acknowledged } }
-    public var hasPremiumAccess: Bool { subscription.canUsePremiumAI || isPremiumPreview }
-    public var medicationsTakenCount: Int { snapshot.medications.filter { $0.seniorID == selectedSeniorID && $0.taken }.count }
-    public var latestHealth: HealthSnapshot? { snapshot.health.first { $0.seniorID == selectedSeniorID } }
-    public var selectedAppointment: Appointment? { snapshot.appointments.first { $0.seniorID == selectedSeniorID } }
+    public var selectedSummary: SeniorCareSummary? { SeniorCareSummary(snapshot: snapshot, seniorID: selectedSeniorID, now: now()) }
     public var seniorSummaries: [SeniorCareSummary] {
-        snapshot.seniors.compactMap { SeniorCareSummary(snapshot: snapshot, seniorID: $0.id) }
+        snapshot.seniors.compactMap { SeniorCareSummary(snapshot: snapshot, seniorID: $0.id, now: now()) }
     }
-    public var selectedSummary: SeniorCareSummary? { SeniorCareSummary(snapshot: snapshot, seniorID: selectedSeniorID) }
+    public var isCheckedIn: Bool { snapshot.checkIns.contains { $0.seniorID == selectedSeniorID } }
+    public var currentMood: Mood? { selectedSummary?.mood }
+    public var hasEmergency: Bool { snapshot.alerts.contains { $0.seniorID == selectedSeniorID && !$0.acknowledged } }
+    public var medications: [Medication] { snapshot.medications.filter { $0.seniorID == selectedSeniorID } }
+    public var medicationsTakenCount: Int { medications.filter(\.taken).count }
+    public var latestHealth: HealthSnapshot? { selectedSummary?.latestHealth }
+    public var appointments: [Appointment] {
+        snapshot.appointments.filter { $0.seniorID == selectedSeniorID }.sorted { $0.date < $1.date }
+    }
+    public var nextAppointment: Appointment? { selectedSummary?.nextAppointment }
     public var activeAlertCount: Int {
         var count = 0
-        if medicationsTakenCount < snapshot.medications.filter({ $0.seniorID == selectedSeniorID }).count { count += 1 }
+        if medicationsTakenCount < medications.count { count += 1 }
         if !isCheckedIn { count += 1 }
         if hasEmergency { count += 1 }
         if selectedSummary?.isStepsBelowBaseline == true { count += 1 }
@@ -57,269 +78,300 @@ import Observation
         selectedSeniorID = id
         careInsight = nil
         appointmentPrep = nil
-        isAppointmentPreparedPreview = false
     }
-    public func chooseRole(_ newRole: CareRole) {
-        role = newRole
-        screen = newRole == .senior ? .seniorHome : .familyDashboard
-        seniorTab = .home
-        familyTab = hasEmergency ? .emergency : .dashboard
+
+    // MARK: - Messages
+
+    public var messages: [CareMessage] { snapshot.messages }
+
+    public func senderName(for message: CareMessage) -> String {
+        if message.senderProfileID != nil, message.senderProfileID == currentProfileID { return "You" }
+        guard let member = snapshot.members.first(where: { $0.profileID == message.senderProfileID }) else {
+            return "Former member"
+        }
+        return member.name.isEmpty ? (member.role == .senior ? "Senior" : "Family member") : member.name
     }
-    public func switchToSenior(tab: SeniorTab = .home) {
-        role = .senior
-        screen = .seniorHome
-        seniorTab = tab
+
+    public func isFromCurrentUser(_ message: CareMessage) -> Bool {
+        message.senderProfileID != nil && message.senderProfileID == currentProfileID
     }
-    public func switchToFamily(tab: FamilyTab = .dashboard) {
-        role = .family
-        screen = .familyDashboard
-        familyTab = hasEmergency ? .emergency : tab
+
+    @discardableResult
+    public func sendMessage(_ body: String) async -> Bool {
+        let text = body.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return false }
+        return await perform("Message not sent") { try await self.repository.sendMessage(String(text.prefix(2000))) }
     }
+
+    // MARK: - Care actions
+
     public func refresh() async {
         do {
             try await repository.refresh()
-            snapshot = repository.snapshot
-            if !snapshot.seniors.contains(where: { $0.id == selectedSeniorID }) {
-                selectedSeniorID = snapshot.seniors.first?.id ?? ""
-            }
+            applyRepositorySnapshot()
         } catch {
             showToast("Couldn't refresh care data: \(error.localizedDescription)")
         }
     }
 
     public func checkIn() async {
-        do {
-            try await repository.checkIn(seniorID: selectedSeniorID, at: now())
-            snapshot = repository.snapshot
-            seniorTab = .mood
-            showToast("Maya's check-in is now visible to Diwas.")
-        } catch {
-            showToast("Check-in failed: \(error.localizedDescription)")
+        let ok = await perform("Check-in failed", success: "Check-in shared with your family.") {
+            try await self.repository.checkIn(seniorID: self.selectedSeniorID, at: self.now())
         }
+        if ok { seniorTab = .mood }
     }
 
     public func recordMood(_ mood: Mood, note: String? = nil) async {
-        do {
-            try await repository.recordMood(mood, seniorID: selectedSeniorID, at: now(), note: note)
-            snapshot = repository.snapshot
-            showToast("Mood recorded for today's care context.")
-        } catch {
-            showToast("Failed to record mood: \(error.localizedDescription)")
+        let trimmed = note?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let ok = await perform("Couldn't save mood", success: "Mood shared with your family.") {
+            try await self.repository.recordMood(mood, seniorID: self.selectedSeniorID, at: self.now(),
+                                                 note: trimmed?.isEmpty == false ? trimmed : nil)
         }
+        if ok { seniorTab = .home }
     }
 
     public func toggleMedication(id: String) async {
-        do {
-            try await repository.toggleMedication(id: id)
-            snapshot = repository.snapshot
-        } catch {
-            showToast("Failed to update medication: \(error.localizedDescription)")
+        guard let medication = snapshot.medications.first(where: { $0.id == id }) else { return }
+        await perform("Couldn't update medication") {
+            try await self.repository.recordMedicationEvent(medicationID: id, taken: !medication.taken, at: self.now())
         }
     }
 
-    public func addMedication(name: String, scheduledTime: String) async {
-        do {
-            try await repository.addMedication(seniorID: selectedSeniorID, name: name, scheduledTime: scheduledTime)
-            snapshot = repository.snapshot
-            showToast("Medication added successfully.")
-        } catch {
-            showToast("Failed to add medication: \(error.localizedDescription)")
+    @discardableResult
+    public func addMedication(name: String, dosage: String, scheduledTime: String) async -> Bool {
+        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { return false }
+        return await perform("Couldn't add medication", success: "\(name) added.") {
+            try await self.repository.addMedication(seniorID: self.selectedSeniorID, name: name,
+                                                    dosage: dosage.trimmingCharacters(in: .whitespacesAndNewlines),
+                                                    scheduledTime: scheduledTime)
         }
     }
 
-    public func updateMedication(id: String, name: String, scheduledTime: String) async {
-        do {
-            try await repository.updateMedication(id: id, name: name, scheduledTime: scheduledTime)
-            snapshot = repository.snapshot
-            showToast("Medication updated successfully.")
-        } catch {
-            showToast("Failed to update medication: \(error.localizedDescription)")
+    @discardableResult
+    public func updateMedication(id: String, name: String, dosage: String, scheduledTime: String) async -> Bool {
+        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { return false }
+        return await perform("Couldn't update medication", success: "Medication updated.") {
+            try await self.repository.updateMedication(id: id, name: name,
+                                                       dosage: dosage.trimmingCharacters(in: .whitespacesAndNewlines),
+                                                       scheduledTime: scheduledTime)
         }
     }
 
     public func deleteMedication(id: String) async {
-        do {
-            try await repository.deleteMedication(id: id)
-            snapshot = repository.snapshot
-            showToast("Medication deleted.")
-        } catch {
-            showToast("Failed to delete medication: \(error.localizedDescription)")
+        await perform("Couldn't delete medication", success: "Medication removed.") {
+            try await self.repository.deleteMedication(id: id)
         }
     }
 
+    @discardableResult
+    public func saveAppointment(_ appointment: Appointment) async -> Bool {
+        guard !appointment.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
+        let ok = await perform("Couldn't save appointment", success: appointment.id.isEmpty ? "Appointment added." : "Appointment updated.") {
+            try await self.repository.saveAppointment(appointment)
+        }
+        if ok { appointmentPrep = nil }
+        return ok
+    }
+
+    public func deleteAppointment(id: String) async {
+        await perform("Couldn't delete appointment", success: "Appointment removed.") {
+            try await self.repository.deleteAppointment(id: id)
+        }
+        appointmentPrep = nil
+    }
+
     public func triggerSOS() async {
-        do {
-            try await repository.triggerSOS(seniorID: selectedSeniorID, at: now())
-            snapshot = repository.snapshot
-            familyTab = .emergency
-            showToast("SOS alert is active for the family dashboard.")
-        } catch {
-            showToast("Failed to trigger SOS: \(error.localizedDescription)")
+        await perform("Couldn't send SOS") {
+            try await self.repository.triggerSOS(seniorID: self.selectedSeniorID, at: self.now())
         }
     }
 
     public func acknowledgeEmergency() async {
-        do {
-            try await repository.acknowledgeAlerts(seniorID: selectedSeniorID)
-            snapshot = repository.snapshot
-            familyTab = .dashboard
-        } catch {
-            showToast("Failed to acknowledge emergency: \(error.localizedDescription)")
+        await perform("Couldn't acknowledge alert", success: "Alert acknowledged.") {
+            try await self.repository.acknowledgeAlerts(seniorID: self.selectedSeniorID)
         }
-    }
-    public func showPaywall(for context: PaywallContext) {
-        paywallContext = context
-    }
-    public func unlockPremiumPreview() {
-        isPremiumPreview = true
-        subscription = SubscriptionAccess(activeEntitlements: ["premium_insights"])
-        paywallContext = nil
-        showToast("Premium AI unlocked.")
-    }
-    public func loadCareInsight(using service: any AIService = MockAIService()) async {
-        guard hasPremiumAccess else {
-            showPaywall(for: .careInsight)
-            return
-        }
-        careInsight = try? await service.careInsight(for: snapshot, seniorID: selectedSeniorID)
-    }
-    public func prepareAppointment(using service: any AIService = MockAIService()) async {
-        guard hasPremiumAccess else {
-            showPaywall(for: .appointmentPrep)
-            return
-        }
-        guard let appointment = selectedAppointment else { return }
-        appointmentPrep = try? await service.appointmentPrep(for: appointment, snapshot: snapshot)
-        isAppointmentPreparedPreview = appointmentPrep != nil
-        showToast("Appointment preparation is ready.")
-    }
-    public func showToast(_ message: String) {
-        toastMessage = message
-    }
-    public func clearToast() {
-        toastMessage = nil
-    }
-    public func resetDemo() async {
-        await repository.reset()
-        snapshot = repository.snapshot
-        selectedSeniorID = snapshot.seniors.first?.id ?? ""
-        role = nil
-        screen = .onboarding
-        seniorTab = .home
-        familyTab = .dashboard
-        paywallContext = nil
-        toastMessage = nil
-        careInsight = nil
-        appointmentPrep = nil
-        isPremiumPreview = false
-        isAppointmentPreparedPreview = false
     }
 
-    // MARK: - Health Data Sync
+    // MARK: - Insights
+
+    public func loadCareInsight() async {
+        careInsight = try? await aiService.careInsight(for: snapshot, seniorID: selectedSeniorID)
+    }
+
+    public func prepareAppointment(id: String? = nil) async {
+        let appointment = id.flatMap { id in snapshot.appointments.first { $0.id == id } } ?? nextAppointment
+        guard let appointment else {
+            showToast("Add an upcoming appointment first.")
+            return
+        }
+        appointmentPrep = try? await aiService.appointmentPrep(for: appointment, snapshot: snapshot)
+    }
+
+    // MARK: - Seniors, contacts and profile
+
+    @discardableResult
+    public func addSenior(name: String, age: Int, city: String, timeZoneIdentifier: String, isMe: Bool = false) async -> Bool {
+        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { return false }
+        let before = Set(snapshot.seniors.map(\.id))
+        let senior = AccountSenior(id: "", accountID: snapshot.account.id, name: name, age: age,
+                                   city: city.trimmingCharacters(in: .whitespacesAndNewlines),
+                                   timeZoneIdentifier: timeZoneIdentifier, profileID: isMe ? currentProfileID : nil)
+        let ok = await perform("Couldn't add senior", success: "\(name) added.") {
+            try await self.repository.addSenior(senior)
+        }
+        if ok, let added = snapshot.seniors.first(where: { !before.contains($0.id) }) {
+            selectSenior(id: added.id)
+        }
+        return ok
+    }
+
+    @discardableResult
+    public func updateSeniorProfile(name: String, age: Int, city: String, timeZone: String) async -> Bool {
+        guard var senior = selectedSenior else { return false }
+        senior.name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        senior.age = age
+        senior.city = city.trimmingCharacters(in: .whitespacesAndNewlines)
+        senior.timeZoneIdentifier = timeZone
+        guard !senior.name.isEmpty else { return false }
+        return await perform("Couldn't update senior", success: "Profile updated.") {
+            try await self.repository.updateSenior(senior)
+        }
+    }
+
+    public func removeSenior(id: String) async {
+        await perform("Couldn't remove senior", success: "Senior removed.") {
+            try await self.repository.removeSenior(id: id)
+        }
+    }
+
+    @discardableResult
+    public func claimSenior(id: String) async -> Bool {
+        let ok = await perform("Couldn't link your profile") { try await self.repository.claimSenior(id: id) }
+        if ok, let linkedSenior { selectedSeniorID = linkedSenior.id }
+        return ok
+    }
+
+    @discardableResult
+    public func saveEmergencyContact(name: String, relation: String, phone: String, id: String = "") async -> Bool {
+        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let phone = phone.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, !phone.isEmpty else { return false }
+        let contact = EmergencyContact(id: id, seniorID: selectedSeniorID, name: name,
+                                       relation: relation.trimmingCharacters(in: .whitespacesAndNewlines), phone: phone)
+        return await perform("Couldn't save contact", success: id.isEmpty ? "Contact added." : "Contact updated.") {
+            try await self.repository.saveEmergencyContact(contact)
+        }
+    }
+
+    public func deleteEmergencyContact(id: String) async {
+        await perform("Couldn't delete contact", success: "Contact removed.") {
+            try await self.repository.deleteEmergencyContact(id: id)
+        }
+    }
+
+    @discardableResult
+    public func updateProfile(displayName: String, city: String, phone: String) async -> Bool {
+        let name = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { return false }
+        return await perform("Couldn't save your profile", success: "Profile saved.") {
+            try await self.repository.updateProfile(displayName: name,
+                                                    city: city.trimmingCharacters(in: .whitespacesAndNewlines),
+                                                    phone: phone.trimmingCharacters(in: .whitespacesAndNewlines))
+        }
+    }
+
+    // MARK: - Health sync
 
     public func syncHealthData() async {
-        guard let healthProvider = healthProvider else {
-            // No health provider in demo mode
+        guard let healthProvider, let senior = linkedSenior else { return }
+        guard await healthProvider.permissionStatus() == .authorized else {
+            healthSyncStatus.healthData = .idle
             return
         }
-
-        // Check if we have permission
-        let status = await healthProvider.permissionStatus()
-        guard status == .authorized else {
-            healthSyncStatus.healthData = .failed
-            healthSyncStatus.lastError = "Health data access not authorized"
-            return
-        }
-
         healthSyncStatus.healthData = .syncing
-
         do {
-            // Real health data must be queried against the wall clock. `now()` is the
-            // frozen demo clock (DemoCareRepository.referenceDate), which would limit
-            // the HealthKit query to a fixed past week and never return current samples.
-            let syncDate = Date()
-            let snapshots = try await healthProvider.snapshots(
-                seniorID: selectedSeniorID,
-                endingAt: syncDate
-            )
-
-            // Upsert health snapshots to repository
+            let snapshots = try await healthProvider.snapshots(seniorID: senior.id, endingAt: now())
             try await repository.upsertHealthSnapshots(snapshots)
-            snapshot = repository.snapshot
-
+            applyRepositorySnapshot()
             healthSyncStatus.healthData = .synced
-            healthSyncStatus.lastSyncDate = syncDate
+            healthSyncStatus.lastSyncDate = now()
             healthSyncStatus.lastError = nil
-
-            showToast("Health data synced successfully")
         } catch {
             healthSyncStatus.healthData = .failed
             healthSyncStatus.lastError = error.localizedDescription
-            showToast("Health sync failed: \(error.localizedDescription)")
         }
     }
 
     public func checkHealthPermissionStatus() async -> HealthPermissionStatus {
-        guard let healthProvider = healthProvider else {
-            return .notDetermined
-        }
-        return await healthProvider.permissionStatus()
+        await healthProvider?.permissionStatus() ?? .notDetermined
     }
 
     public func requestHealthPermissions() async throws {
-        guard let healthProvider = healthProvider else {
-            throw CareServiceError.vendorUnavailable
-        }
+        guard let healthProvider else { throw CareServiceError.vendorUnavailable }
         try await healthProvider.requestPermission()
     }
 
+    /// Keeps Apple Health in sync while the senior's phone has permission. Safe to call repeatedly.
     public func setupAutomaticHealthSync() async {
-        guard let healthProvider = healthProvider else { return }
-
-        // Start background sync (HKObserverQuery)
+        guard canSyncHealth, let healthProvider else { return }
+        guard await healthProvider.permissionStatus() == .authorized else { return }
         try? await healthProvider.startBackgroundSync()
-
-        // Listen for HealthKit data notifications
-        NotificationCenter.default.addObserver(
-            forName: .healthKitDataAvailable,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in
-                await self?.syncHealthData()
-            }
+        guard healthObserver == nil else { return }
+        healthObserver = NotificationCenter.default.addObserver(forName: .healthKitDataAvailable, object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor in await self?.syncHealthData() }
         }
     }
 
     public func teardownAutomaticHealthSync() async {
-        guard let healthProvider = healthProvider else { return }
-
-        // Remove notification observer
-        NotificationCenter.default.removeObserver(
-            self,
-            name: .healthKitDataAvailable,
-            object: nil
-        )
-
-        // Stop background sync
-        await healthProvider.stopBackgroundSync()
+        if let healthObserver {
+            NotificationCenter.default.removeObserver(healthObserver)
+            self.healthObserver = nil
+        }
+        await healthProvider?.stopBackgroundSync()
     }
 
-    // MARK: - Senior Profile Management
+    // MARK: - Toasts
 
-    public func updateSeniorProfile(name: String, age: Int, city: String, timeZone: String) async {
-        guard var senior = selectedSenior else { return }
-        senior.name = name
-        senior.age = age
-        senior.city = city
-        senior.timeZoneIdentifier = timeZone
+    public func showToast(_ message: String) {
+        toastMessage = message
+    }
+
+    public func clearToast() {
+        toastMessage = nil
+    }
+
+    // MARK: - Helpers
+
+    @discardableResult
+    private func perform(_ failure: String, success: String? = nil, _ work: () async throws -> Void) async -> Bool {
         do {
-            try await repository.updateSenior(senior)
-            snapshot = repository.snapshot
-            showToast("Senior profile updated.")
+            try await work()
+            applyRepositorySnapshot()
+            if let success { showToast(success) }
+            return true
         } catch {
-            showToast("Failed to update senior: \(error.localizedDescription)")
+            showToast("\(failure): \(error.localizedDescription)")
+            return false
         }
+    }
+
+    private func applyRepositorySnapshot() {
+        snapshot = repository.snapshot
+        if !snapshot.seniors.contains(where: { $0.id == selectedSeniorID }) {
+            selectedSeniorID = Self.defaultSeniorID(in: snapshot, profileID: currentProfileID)
+            careInsight = nil
+            appointmentPrep = nil
+        }
+    }
+
+    private static func defaultSeniorID(in snapshot: CareSnapshot, profileID: String?) -> String {
+        if let profileID, let mine = snapshot.seniors.first(where: { $0.profileID == profileID }) {
+            return mine.id
+        }
+        return snapshot.seniors.first?.id ?? ""
     }
 }
 

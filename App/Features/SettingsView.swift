@@ -1,118 +1,158 @@
-import SwiftUI
 import CareCore
+import SwiftUI
 
-/// App settings: sign out, demo reset, privacy controls, about
 struct SettingsView: View {
     @Environment(AppState.self) private var state
-    @Environment(LiveModeController.self) private var live
+    @Environment(SessionController.self) private var session
     @Environment(\.dismiss) private var dismiss
-    @State private var showingResetConfirmation = false
-    @State private var showingSignOutConfirmation = false
+
+    @State private var name = ""
+    @State private var city = ""
+    @State private var phone = ""
+    @State private var isSavingProfile = false
+    @State private var showHealth = false
+    @State private var confirmSignOut = false
+    @State private var confirmDelete = false
+    @State private var isDeleting = false
+
+    private var profileChanged: Bool {
+        guard let me = state.currentMember else { return false }
+        return name != me.name || city != me.city || phone != me.phone
+    }
+
+    private var inviteText: String {
+        "Join \(state.snapshot.account.name) on CareCompanion with invite code \(state.snapshot.account.inviteCode)."
+    }
+
+    private var version: String {
+        let info = Bundle.main.infoDictionary
+        return "\(info?["CFBundleShortVersionString"] as? String ?? "1.0") (\(info?["CFBundleVersion"] as? String ?? "1"))"
+    }
 
     var body: some View {
         NavigationStack {
-            List {
-                // Account Section (if signed in)
-                if live.isSignedIn {
-                    Section("Account") {
-                        if let email = live.signedInEmail {
-                            LabeledContent("Email", value: email)
+            Form {
+                Section {
+                    TextField("Your name", text: $name)
+                        .textContentType(.name)
+                    TextField("City", text: $city)
+                        .textContentType(.addressCity)
+                    TextField("Phone number", text: $phone)
+                        .textContentType(.telephoneNumber)
+                        .keyboardType(.phonePad)
+                    Button(isSavingProfile ? "Saving…" : "Save profile") {
+                        Task {
+                            isSavingProfile = true
+                            await state.updateProfile(displayName: name, city: city, phone: phone)
+                            isSavingProfile = false
                         }
+                    }
+                    .disabled(!profileChanged || name.trimmingCharacters(in: .whitespaces).isEmpty || isSavingProfile)
+                } header: {
+                    Text("Your profile")
+                } footer: {
+                    Text("Family members can call you with this number.")
+                }
 
-                        if live.hasAccount, let account = state.snapshot.account.name as String? {
-                            LabeledContent("Family", value: account)
-                        }
+                Section("Family") {
+                    LabeledContent("Name", value: state.snapshot.account.name)
+                    LabeledContent("You are", value: state.role == .senior ? "The senior" : "A family member")
+                    LabeledContent("Invite code") {
+                        Text(state.snapshot.account.inviteCode)
+                            .font(.system(.body, design: .monospaced).weight(.bold))
+                            .textSelection(.enabled)
+                    }
+                    ShareLink("Share invite code", item: inviteText)
+                }
 
-                        if live.isLive, let repo = live.repository {
-                            LabeledContent("Invite Code", value: repo.inviteCode)
-                                .textSelection(.enabled)
-                        }
-
-                        Button(role: .destructive) {
-                            showingSignOutConfirmation = true
-                        } label: {
-                            Label("Sign Out", systemImage: "rectangle.portrait.and.arrow.right")
-                        }
+                if state.role == .senior {
+                    Section("Apple Health") {
+                        Button("Health data sharing") { showHealth = true }
                     }
                 }
 
-                // Demo Section
-                Section("Demo") {
-                    Button {
-                        showingResetConfirmation = true
-                    } label: {
-                        Label("Reset Demo", systemImage: "arrow.counterclockwise")
-                    }
-                }
-
-                // Privacy Section
                 Section("Privacy") {
-                    NavigationLink {
-                        PrivacyView()
-                    } label: {
-                        Label("Privacy & Data", systemImage: "hand.raised")
-                    }
+                    NavigationLink("How your data is used") { PrivacyInfoView() }
                 }
 
-                // About Section
+                Section {
+                    Button("Sign out") { confirmSignOut = true }
+                        .accessibilityIdentifier("settings.signOut")
+                }
+
+                Section {
+                    Button(role: .destructive) { confirmDelete = true } label: {
+                        if isDeleting { ProgressView() } else { Text("Delete account") }
+                    }
+                    .disabled(isDeleting)
+                    .accessibilityIdentifier("settings.deleteAccount")
+                } footer: {
+                    Text("Permanently deletes your login and profile. If nobody else is in \(state.snapshot.account.name), the family and all of its care data are deleted too.")
+                }
+
+                if let error = session.errorMessage {
+                    Section { FormErrorText(message: error) }
+                }
+
                 Section("About") {
-                    LabeledContent("Version", value: "1.0.0")
-                    LabeledContent("Build", value: "1")
-                    Link(destination: URL(string: "https://carecompanion.example.com")!) {
-                        Label("Website", systemImage: "globe")
+                    LabeledContent("Version", value: version)
+                    if let email = session.signedInUser?.email {
+                        LabeledContent("Signed in as", value: email)
                     }
                 }
             }
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
+                ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }
                 }
             }
-            .confirmationDialog("Reset Demo", isPresented: $showingResetConfirmation) {
-                Button("Reset", role: .destructive) {
-                    Task { await state.resetDemo() }
-                }
-            } message: {
-                Text("This will reset all demo data to the initial state.")
+            .onAppear {
+                session.errorMessage = nil
+                name = state.currentMember?.name ?? ""
+                city = state.currentMember?.city ?? ""
+                phone = state.currentMember?.phone ?? ""
             }
-            .confirmationDialog("Sign Out", isPresented: $showingSignOutConfirmation) {
-                Button("Sign Out", role: .destructive) {
-                    Task { await live.signOut() }
+            .sheet(isPresented: $showHealth) { HealthPermissionsView().environment(state) }
+            .confirmationDialog("Sign out of CareCompanion?", isPresented: $confirmSignOut, titleVisibility: .visible) {
+                Button("Sign out", role: .destructive) {
+                    Task { await session.signOut() }
                 }
+            }
+            .alert("Delete your account?", isPresented: $confirmDelete) {
+                Button("Delete", role: .destructive) {
+                    Task {
+                        isDeleting = true
+                        _ = await session.deleteAccount()
+                        isDeleting = false
+                    }
+                }
+                Button("Cancel", role: .cancel) {}
             } message: {
-                Text("You'll need to sign in again to access your care data.")
+                Text("This can't be undone.")
             }
         }
     }
 }
 
-private struct PrivacyView: View {
+private struct PrivacyInfoView: View {
     var body: some View {
         List {
-            Section {
-                Text("CareCompanion processes health and care data locally on your device. Data is synced securely to your family account when you're signed in.")
-                    .font(.system(size: 15))
-                    .foregroundStyle(CareTheme.secondaryText)
+            Section("What CareCompanion stores") {
+                Text("Your name, city and phone number; your family's name and members; the senior's details, check-ins, moods and notes, medicines, visits, emergency contacts, SOS alerts and family messages.")
             }
-
-            Section("Data Collection") {
-                LabeledContent("Health Data", value: "With Permission")
-                LabeledContent("Location", value: "Never")
-                LabeledContent("Analytics", value: "None")
+            Section("Apple Health") {
+                Text("Only on the senior's own iPhone, and only after they allow it. CareCompanion reads steps, sleep and resting heart rate and shares one daily total for each with their family. Individual Health samples never leave the phone, and nothing is written to Apple Health.")
             }
-
-            Section("Your Rights") {
-                Button("Delete My Data") {
-                    // Placeholder for data deletion
-                }
-                Button("Export My Data") {
-                    // Placeholder for data export
-                }
+            Section("Who can see it") {
+                Text("Only people who have joined your family with its invite code. Access is enforced by the database for every request.")
+            }
+            Section("Deleting your data") {
+                Text("Settings › Delete account removes your login and profile immediately. If you're the last member of your family, the family and all its care data are deleted too.")
             }
         }
-        .navigationTitle("Privacy & Data")
+        .navigationTitle("Privacy")
         .navigationBarTitleDisplayMode(.inline)
     }
 }

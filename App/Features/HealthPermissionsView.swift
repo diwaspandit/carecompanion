@@ -1,287 +1,141 @@
-import SwiftUI
 import CareCore
+import SwiftUI
 
+/// Lets the senior share Apple Health with their family from their own iPhone.
 struct HealthPermissionsView: View {
     @Environment(AppState.self) private var state
     @Environment(\.dismiss) private var dismiss
-    @State private var permissionStatus: HealthPermissionStatus = .notDetermined
-    @State private var isRequesting = false
+    @Environment(\.openURL) private var openURL
+    @State private var permission: HealthPermissionStatus = .notDetermined
+    @State private var isWorking = false
     @State private var errorMessage: String?
-    @State private var seedResults: [String] = []
+    #if DEBUG
+    @State private var sampleResult: String?
+    #endif
 
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(alignment: .leading, spacing: 24) {
-                    // Header
-                    VStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .leading, spacing: 22) {
+                    VStack(alignment: .leading, spacing: 10) {
                         Image(systemName: "heart.text.square.fill")
-                            .font(.system(size: 60))
-                            .foregroundStyle(.red.gradient)
-
-                        Text("Health Data Access")
-                            .font(.system(size: 32, weight: .bold))
-
-                        Text("CareCompanion can sync health data from Apple Health to help family members understand daily activity patterns.")
+                            .font(.system(size: 56))
+                            .foregroundStyle(CareTheme.coral)
+                            .accessibilityHidden(true)
+                        Text("Share Apple Health")
+                            .font(.system(size: 30, weight: .black))
+                        Text("Your family sees a daily total for each of these, so they know how your days are going.")
                             .font(.system(size: 17))
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(CareTheme.mutedText)
                     }
-                    .padding(.top, 20)
+                    .padding(.top, 12)
 
-                    // What we access
-                    VStack(alignment: .leading, spacing: 16) {
-                        Text("What We Access")
-                            .font(.system(size: 22, weight: .semibold))
-
-                        HealthDataTypeRow(
-                            icon: "figure.walk",
-                            title: "Steps",
-                            description: "Daily step count to monitor activity levels"
-                        )
-
-                        HealthDataTypeRow(
-                            icon: "bed.double.fill",
-                            title: "Sleep",
-                            description: "Sleep duration to track rest patterns"
-                        )
-
-                        HealthDataTypeRow(
-                            icon: "heart.fill",
-                            title: "Resting Heart Rate",
-                            description: "Heart rate measurements for wellness monitoring"
-                        )
+                    VStack(alignment: .leading, spacing: 14) {
+                        HealthDataTypeRow(icon: "figure.walk", title: "Steps", description: "How active you were each day")
+                        HealthDataTypeRow(icon: "bed.double.fill", title: "Sleep", description: "Hours asleep each night")
+                        HealthDataTypeRow(icon: "heart.fill", title: "Resting heart rate", description: "Your daily resting heart rate")
                     }
 
-                    // Privacy notice
-                    VStack(alignment: .leading, spacing: 12) {
-                        HStack(spacing: 8) {
-                            Image(systemName: "lock.shield.fill")
-                                .foregroundStyle(.blue)
-                            Text("Your Privacy")
-                                .font(.system(size: 20, weight: .semibold))
+                    Text("Individual Health samples stay on this iPhone. CareCompanion never writes to Apple Health. To stop sharing, open the Health app › Sharing › Apps › CareCompanion.")
+                        .font(.system(size: 14))
+                        .foregroundStyle(CareTheme.mutedText)
+                        .padding(16)
+                        .background(CareTheme.bluePale, in: RoundedRectangle(cornerRadius: 16))
+
+                    FormErrorText(message: errorMessage ?? state.healthSyncStatus.lastError)
+
+                    if permission == .restricted {
+                        Text("Apple Health isn't available on this device.")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(CareTheme.coralDark)
+                    } else if permission != .authorized {
+                        PrimaryActionButton(title: "Allow Apple Health access", isLoading: isWorking) {
+                            Task { await requestAccess() }
                         }
-
-                        Text("• Health data stays on your device and is only shared with authorized family members\n• You control which data types to share\n• You can revoke access anytime in Settings")
-                            .font(.system(size: 15))
-                            .foregroundStyle(.secondary)
-                    }
-                    .padding(16)
-                    .background(.blue.opacity(0.1), in: RoundedRectangle(cornerRadius: 12))
-
-                    // Current status
-                    if permissionStatus != .notDetermined {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Current Status")
-                                .font(.system(size: 17, weight: .semibold))
-
-                            HStack {
-                                statusIcon
-                                Text(statusText)
-                                    .font(.system(size: 15))
-                                Spacer()
-                            }
-                            .padding(12)
-                            .background(.gray.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
-                        }
+                        .accessibilityIdentifier("health.allow")
+                    } else {
+                        syncSection
                     }
 
-                    // Error message
-                    if let errorMessage = errorMessage {
-                        Text(errorMessage)
-                            .font(.system(size: 15))
-                            .foregroundStyle(.red)
-                            .padding(12)
-                            .background(.red.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
-                    }
-
-                    // Action button
-                    if permissionStatus == .notDetermined || permissionStatus == .denied {
-                        Button {
-                            Task {
-                                await requestPermission()
-                            }
-                        } label: {
-                            HStack {
-                                if isRequesting {
-                                    ProgressView()
-                                        .tint(.white)
-                                } else {
-                                    Text(permissionStatus == .notDetermined ? "Allow Health Access" : "Open Settings")
-                                        .font(.system(size: 17, weight: .semibold))
-                                }
-                            }
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 16)
-                            .background(.blue, in: RoundedRectangle(cornerRadius: 12))
-                            .foregroundStyle(.white)
-                        }
-                        .disabled(isRequesting)
-                    }
-
-                    if permissionStatus == .authorized {
-                        syncVerificationSection
-                    }
-
-                    Spacer(minLength: 40)
+                    #if DEBUG
+                    debugSection
+                    #endif
                 }
                 .padding(.horizontal, 20)
+                .padding(.bottom, 32)
             }
+            .background(CareTheme.background)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Done") {
-                        dismiss()
-                    }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
                 }
             }
-        }
-        .task {
-            await checkPermissionStatus()
+            .task { permission = await state.checkHealthPermissionStatus() }
         }
     }
 
-    private var healthKitRecords: [HealthSnapshot] {
-        state.snapshot.health.filter { $0.seniorID == state.selectedSeniorID && $0.source == "healthkit" }
-    }
-
-    private var syncVerificationSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Sync Verification")
-                .font(.system(size: 17, weight: .semibold))
-
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Senior: \(state.selectedSenior?.name ?? "—") (\(state.selectedSeniorID))")
-                Text("Sync state: \(state.healthSyncStatus.healthData.rawValue)")
-                if let date = state.healthSyncStatus.lastSyncDate {
-                    Text("Last sync: \(date.formatted(date: .abbreviated, time: .standard))")
-                }
-                if let error = state.healthSyncStatus.lastError {
-                    Text("Last error: \(error)").foregroundStyle(.red)
-                }
-                Text("Apple Health days synced: \(healthKitRecords.count)")
-                if let latest = healthKitRecords.first {
-                    Text("Latest (\(latest.date.formatted(date: .abbreviated, time: .omitted))): \(latest.steps) steps · \(latest.sleepMinutes) min sleep · \(latest.restingHeartRate) bpm")
-                } else {
-                    Text("No Apple Health samples found yet — dashboard is showing demo data.")
-                        .foregroundStyle(.secondary)
-                }
+    private var syncSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            let synced = state.snapshot.health.filter { $0.seniorID == state.linkedSenior?.id && $0.source == "healthkit" }
+            Label(synced.isEmpty ? "Access allowed. No Health data found for the past week yet." : "Sharing \(synced.count) days with your family",
+                  systemImage: "checkmark.circle.fill")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(CareTheme.sageDark)
+                .accessibilityIdentifier("health.status")
+            if let date = state.healthSyncStatus.lastSyncDate {
+                Text("Last shared \(date.formatted(.relative(presentation: .named)))")
+                    .font(.system(size: 14))
+                    .foregroundStyle(CareTheme.secondaryText)
             }
-            .font(.system(size: 13, design: .monospaced))
-            .padding(12)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(.gray.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
-            .accessibilityIdentifier("health.syncVerification")
-
-            Button {
+            PrimaryActionButton(title: state.healthSyncStatus.healthData == .syncing ? "Sharing…" : "Share now",
+                                isLoading: state.healthSyncStatus.healthData == .syncing) {
                 Task { await state.syncHealthData() }
-            } label: {
-                Text(state.healthSyncStatus.healthData == .syncing ? "Syncing…" : "Sync Now")
-                    .font(.system(size: 17, weight: .semibold))
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
-                    .background(.blue, in: RoundedRectangle(cornerRadius: 12))
-                    .foregroundStyle(.white)
             }
-            .disabled(state.healthSyncStatus.healthData == .syncing)
             .accessibilityIdentifier("health.syncNow")
-
-            #if DEBUG
-            if let healthKit = state.healthProvider as? HealthKitHealthDataProvider {
-                Button {
-                    Task {
-                        seedResults = await healthKit.seedSampleData()
-                        await state.syncHealthData()
-                    }
-                } label: {
-                    Text("Add Sample Health Data (Debug)")
-                        .font(.system(size: 15, weight: .semibold))
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
-                        .background(.orange.opacity(0.15), in: RoundedRectangle(cornerRadius: 12))
-                        .foregroundStyle(.orange)
-                }
-                .accessibilityIdentifier("health.seedSampleData")
-
-                if !seedResults.isEmpty {
-                    VStack(alignment: .leading, spacing: 4) {
-                        ForEach(seedResults, id: \.self) { line in
-                            Text(line).foregroundStyle(line.hasPrefix("Saved") ? Color.primary : Color.red)
-                        }
-                    }
-                    .font(.system(size: 12, design: .monospaced))
-                }
+            Button("Health permissions in Settings") {
+                if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
             }
-            #endif
+            .font(.system(size: 15, weight: .semibold))
+            .foregroundStyle(CareTheme.sageDark)
         }
     }
 
-    private var statusIcon: some View {
-        Group {
-            switch permissionStatus {
-            case .authorized:
-                Image(systemName: "checkmark.circle.fill")
-                    .foregroundStyle(.green)
-            case .denied:
-                Image(systemName: "xmark.circle.fill")
-                    .foregroundStyle(.red)
-            case .restricted:
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .foregroundStyle(.orange)
-            case .notDetermined:
-                Image(systemName: "questionmark.circle.fill")
-                    .foregroundStyle(.gray)
-            }
-        }
-        .font(.system(size: 20))
-    }
-
-    private var statusText: String {
-        switch permissionStatus {
-        case .authorized:
-            return "Health data access granted"
-        case .denied:
-            return "Access denied. Open Settings to enable."
-        case .restricted:
-            return "Health data is restricted on this device"
-        case .notDetermined:
-            return "Permission not requested yet"
-        }
-    }
-
-    private func checkPermissionStatus() async {
-        if let healthProvider = state.healthProvider {
-            permissionStatus = await healthProvider.permissionStatus()
-        }
-    }
-
-    private func requestPermission() async {
-        guard let healthProvider = state.healthProvider else { return }
-
-        isRequesting = true
-        errorMessage = nil
-
-        do {
-            if permissionStatus == .denied {
-                // Open Settings if already denied
-                if let url = URL(string: UIApplication.openSettingsURLString) {
-                    await UIApplication.shared.open(url)
-                }
-            } else {
-                // Request permission
-                try await healthProvider.requestPermission()
-                await checkPermissionStatus()
-
-                // If authorized, set up automatic sync and perform initial sync
-                if permissionStatus == .authorized {
+    #if DEBUG
+    private var debugSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Divider().padding(.vertical, 8)
+            Text("Developer (debug builds only)").font(.system(size: 13, weight: .bold)).foregroundStyle(CareTheme.secondaryText)
+            Button("Write a sample week into Apple Health") {
+                Task {
+                    guard let provider = state.healthProvider as? HealthKitHealthDataProvider else { return }
+                    sampleResult = await provider.writeSimulatorSampleWeek()
+                    permission = await state.checkHealthPermissionStatus()
                     await state.setupAutomaticHealthSync()
                     await state.syncHealthData()
                 }
             }
+            .font(.system(size: 15, weight: .semibold))
+            .accessibilityIdentifier("health.writeSample")
+            if let sampleResult {
+                Text(sampleResult).font(.system(size: 12, design: .monospaced)).foregroundStyle(CareTheme.mutedText)
+            }
+        }
+    }
+    #endif
+
+    private func requestAccess() async {
+        isWorking = true
+        errorMessage = nil
+        do {
+            try await state.requestHealthPermissions()
+            permission = await state.checkHealthPermissionStatus()
+            await state.setupAutomaticHealthSync()
+            await state.syncHealthData()
         } catch {
             errorMessage = error.localizedDescription
         }
-
-        isRequesting = false
+        isWorking = false
     }
 }
 
@@ -293,23 +147,15 @@ struct HealthDataTypeRow: View {
     var body: some View {
         HStack(spacing: 16) {
             Image(systemName: icon)
-                .font(.system(size: 24))
-                .foregroundStyle(.blue)
-                .frame(width: 40, height: 40)
-                .background(.blue.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text(title)
-                    .font(.system(size: 17, weight: .semibold))
-                Text(description)
-                    .font(.system(size: 14))
-                    .foregroundStyle(.secondary)
+                .font(.system(size: 22))
+                .foregroundStyle(CareTheme.blue)
+                .frame(width: 44, height: 44)
+                .background(CareTheme.bluePale, in: RoundedRectangle(cornerRadius: 12))
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title).font(.system(size: 17, weight: .semibold))
+                Text(description).font(.system(size: 14)).foregroundStyle(CareTheme.secondaryText)
             }
         }
+        .accessibilityElement(children: .combine)
     }
-}
-
-#Preview {
-    HealthPermissionsView()
-        .environment(AppState(repository: DemoCareRepository()))
 }

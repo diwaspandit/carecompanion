@@ -1,84 +1,51 @@
 import XCTest
 
-final class CareCompanionDemoUITests: XCTestCase {
+/// Launch smoke tests that don't depend on a particular account. Signed-in flows are verified
+/// against the live project (see docs/STATUS.md) because they need real users.
+final class CareCompanionLaunchUITests: XCTestCase {
     override func setUpWithError() throws {
         continueAfterFailure = false
     }
 
-    func testDemoPathRunOne() throws {
-        try runCoreDemoPath()
-    }
-
-    func testDemoPathRunTwo() throws {
-        try runCoreDemoPath()
-    }
-
-    func testDemoPathRunThree() throws {
-        try runCoreDemoPath()
-    }
-
-    func testSOSAndDemoResetPath() throws {
+    func testLaunchReachesWelcomeOrSignedInScreen() {
         let app = launchApp()
-
-        app.element("onboarding.senior").tap()
-        XCTAssertTrue(app.element("senior.sos").waitForExistence(timeout: 3))
-        app.element("senior.sos").tap()
-
-        XCTAssertTrue(app.element("sos.notified.title").waitForExistence(timeout: 8))
-        app.element("sos.backToFamily").tap()
-
-        XCTAssertTrue(app.element("alerts.title").waitForExistence(timeout: 3))
-        XCTAssertTrue(app.element("alerts.sos").exists)
-
-        openDemoMenu(in: app)
-        app.element("demo.reset").tap()
-
-        XCTAssertTrue(app.element("onboarding.title").waitForExistence(timeout: 3))
+        let welcome = app.element("welcome.title")
+        let family = app.element("family.title")
+        let senior = app.element("senior.checkIn")
+        let setup = app.element("setup.submit")
+        let profile = app.element("profile.continue")
+        let deadline = Date().addingTimeInterval(20)
+        while Date() < deadline {
+            if [welcome, family, senior, setup, profile].contains(where: \.exists) { return }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.5))
+        }
+        XCTFail("App did not reach a usable screen within 20 seconds")
     }
 
-    private func runCoreDemoPath() throws {
+    func testSignUpFormValidatesBeforeSubmitting() throws {
         let app = launchApp()
+        guard app.element("welcome.title").waitForExistence(timeout: 10) else {
+            throw XCTSkip("A session is already signed in on this simulator.")
+        }
+        app.segmentedControls["auth.mode"].buttons["Create account"].tap()
+        XCTAssertTrue(app.element("auth.confirmPassword").waitForExistence(timeout: 2))
 
-        XCTAssertTrue(app.element("onboarding.title").waitForExistence(timeout: 6))
-        app.element("onboarding.senior").tap()
+        let submit = app.buttons["auth.submit"]
+        XCTAssertFalse(submit.isEnabled)
 
-        XCTAssertTrue(app.element("senior.checkIn").waitForExistence(timeout: 3))
-        app.element("senior.checkIn").tap()
-
-        XCTAssertTrue(app.element("mood.okay").waitForExistence(timeout: 6))
-        app.element("mood.okay").tap()
-
-        XCTAssertTrue(app.element("family.title").waitForExistence(timeout: 3))
-        XCTAssertTrue(app.element("family.checkedIn").exists)
-        XCTAssertTrue(app.element("family.medications").exists)
-        XCTAssertTrue(app.element("family.steps").exists)
-        XCTAssertTrue(app.element("family.sleep").exists)
-
-        app.element("insight.unlock").tap()
-        XCTAssertTrue(app.element("paywall.buy").waitForExistence(timeout: 3))
-        app.element("paywall.buy").tap()
-        XCTAssertTrue(app.element("insight.full").waitForExistence(timeout: 3))
-
-        app.element("tab.appointments").tap()
-        XCTAssertTrue(app.element("appointment.prepare").waitForExistence(timeout: 3))
-        app.element("appointment.prepare").tap()
-        XCTAssertTrue(app.element("appointment.prep.ready").waitForExistence(timeout: 3))
+        app.textFields["auth.email"].tap()
+        app.textFields["auth.email"].typeText("family@example.com")
+        app.secureTextFields["auth.password"].tap()
+        app.secureTextFields["auth.password"].typeText("short")
+        XCTAssertTrue(app.element("form.error").waitForExistence(timeout: 2))
+        XCTAssertFalse(submit.isEnabled)
     }
 
     private func launchApp() -> XCUIApplication {
         let app = XCUIApplication()
-        app.launchArguments = ["--ui-testing", "--fast-sos", "-ApplePersistenceIgnoreState", "YES"]
+        app.launchArguments = ["--fast-sos", "-ApplePersistenceIgnoreState", "YES"]
         app.launch()
         return app
-    }
-
-    private func openDemoMenu(in app: XCUIApplication) {
-        if app.element("family.avatar").exists {
-            app.element("family.avatar").press(forDuration: 1.1)
-        } else {
-            app.element("alerts.title").press(forDuration: 1.1)
-        }
-        XCTAssertTrue(app.element("demo.reset").waitForExistence(timeout: 3))
     }
 }
 
