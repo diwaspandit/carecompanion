@@ -24,6 +24,14 @@ import Supabase
     var isConfigured: Bool { client != nil }
     var isSignedIn: Bool { if case .signedIn = authState { true } else { false } }
     var signedInEmail: String? { if case .signedIn(let user) = authState { user.email } else { nil } }
+    var signedInProfileID: String? { if case .signedIn(let user) = authState { user.id } else { nil } }
+    /// Account whose data is on screen; nil in demo mode.
+    var liveAccountID: String? { isLive ? repository?.accountID : nil }
+    /// The senior record this login is linked to, if any (their own device).
+    var linkedSenior: AccountSenior? {
+        guard let signedInProfileID else { return nil }
+        return repository?.snapshot.seniors.first { $0.profileID == signedInProfileID }
+    }
     var hasAccount: Bool { repository != nil }
     var hasSenior: Bool { !(repository?.snapshot.seniors.isEmpty ?? true) }
     var isLive: Bool { liveState != nil }
@@ -88,9 +96,18 @@ import Supabase
         await liveState?.refresh()
     }
 
+    /// "I am this senior": links this login so this device may share the senior's Apple Health data.
+    func claimSenior(id: String) async {
+        guard let repository else { return }
+        await run { try await repository.claimSeniorProfile(seniorID: id) }
+        await liveState?.refresh()
+    }
+
     func goLive() async {
         guard let repository, hasSenior else { return }
-        let state = AppState(repository: repository, healthProvider: HealthKitHealthDataProvider(), now: Date.init)
+        let state = AppState(repository: repository, healthProvider: HealthKitHealthDataProvider(),
+                             currentProfileID: signedInProfileID, now: Date.init)
+        if let linkedSenior { state.selectSenior(id: linkedSenior.id) }
         liveState = state
         do {
             try await repository.startRealtime { [weak state] in

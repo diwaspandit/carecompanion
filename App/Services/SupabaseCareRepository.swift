@@ -86,7 +86,7 @@ import Supabase
             .select("id, account_id, profile_id, role, profiles(display_name, city)")
             .eq("account_id", value: accountID).order("created_at").execute().value
         async let seniors: [AccountSeniorRow] = client.from("account_seniors")
-            .select("id, account_id, name, age, city, time_zone_identifier")
+            .select("id, account_id, profile_id, name, age, city, time_zone_identifier")
             .eq("account_id", value: accountID).is("deleted_at", value: nil).order("created_at").execute().value
         async let checkIns: [CheckInRow] = client.from("check_ins")
             .select("id, senior_id, occurred_at")
@@ -274,6 +274,13 @@ import Supabase
     func addMedication(seniorID: String, name: String, scheduledTime: String) async throws {
         try await insert("medications", MedicationInsert(accountID: try account(for: seniorID), seniorID: seniorID,
                                                         name: name, scheduledTime: scheduledTime))
+    }
+
+    /// Links the signed-in senior member's login to this senior record (server checks the role).
+    func claimSeniorProfile(seniorID: String) async throws {
+        try await perform {
+            try await client.rpc("claim_senior_profile", params: ["target_senior_id": seniorID]).execute()
+        }
     }
 
     func updateSenior(_ senior: AccountSenior) async throws {

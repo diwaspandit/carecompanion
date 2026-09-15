@@ -438,6 +438,15 @@ final class CareCoreTests: XCTestCase {
 
     // MARK: - Phase 4 Health Sync Tests
 
+    /// Sync is only allowed on the senior's own linked login.
+    @MainActor private static func linkedSeniorState() async -> AppState {
+        let repository = DemoCareRepository()
+        var maya = repository.snapshot.seniors[0]
+        maya.profileID = "profile-maya"
+        try? await repository.updateSenior(maya)
+        return AppState(repository: repository, healthProvider: DemoHealthDataProvider(), currentProfileID: "profile-maya")
+    }
+
     func testHealthSyncWithNoProvider() async {
         let state = await MainActor.run {
             AppState(repository: DemoCareRepository(), healthProvider: nil)
@@ -452,9 +461,7 @@ final class CareCoreTests: XCTestCase {
     }
 
     func testHealthSyncWithDemoProvider() async {
-        let state = await MainActor.run {
-            AppState(repository: DemoCareRepository(), healthProvider: DemoHealthDataProvider())
-        }
+        let state = await Self.linkedSeniorState()
 
         await state.syncHealthData()
 
@@ -477,9 +484,7 @@ final class CareCoreTests: XCTestCase {
     }
 
     func testHealthSyncUpdatesSnapshot() async {
-        let state = await MainActor.run {
-            AppState(repository: DemoCareRepository(), healthProvider: DemoHealthDataProvider())
-        }
+        let state = await Self.linkedSeniorState()
 
         await state.syncHealthData()
 
@@ -503,9 +508,7 @@ final class CareCoreTests: XCTestCase {
     }
 
     func testHealthSyncStatusTracking() async {
-        let state = await MainActor.run {
-            AppState(repository: DemoCareRepository(), healthProvider: DemoHealthDataProvider())
-        }
+        let state = await Self.linkedSeniorState()
 
         await MainActor.run {
             XCTAssertEqual(state.healthSyncStatus.healthData, .idle)

@@ -43,6 +43,7 @@ public struct AccountMemberRow: Codable, Equatable, Sendable {
 public struct AccountSeniorRow: Codable, Equatable, Sendable {
     public var id: String
     public var accountID: String
+    public var profileID: String?
     public var name: String
     public var age: Int
     public var city: String
@@ -51,6 +52,7 @@ public struct AccountSeniorRow: Codable, Equatable, Sendable {
     enum CodingKeys: String, CodingKey {
         case id, name, age, city
         case accountID = "account_id"
+        case profileID = "profile_id"
         case timeZoneIdentifier = "time_zone_identifier"
     }
 }
@@ -212,7 +214,7 @@ public struct CareRecords: Equatable, Sendable {
             },
             seniors: seniors.map {
                 AccountSenior(id: $0.id, accountID: $0.accountID, name: $0.name, age: $0.age,
-                              city: $0.city, timeZoneIdentifier: $0.timeZoneIdentifier)
+                              city: $0.city, timeZoneIdentifier: $0.timeZoneIdentifier, profileID: $0.profileID)
             },
             checkIns: checkIns
                 .filter { isSeniorToday($0.occurredAt, $0.seniorID) }

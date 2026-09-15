@@ -16,6 +16,8 @@ import Observation
     public internal(set) var isAppointmentPreparedPreview = false
     public private(set) var selectedSeniorID: String
     public var healthSyncStatus: SyncStatus = SyncStatus()
+    /// Signed-in login in production; nil in demo mode.
+    public let currentProfileID: String?
     @ObservationIgnored public var healthProvider: (any HealthDataProvider)?
     @ObservationIgnored private let repository: any CareRepository
     @ObservationIgnored private let now: () -> Date
@@ -23,10 +25,12 @@ import Observation
     public init(
         repository: any CareRepository,
         healthProvider: (any HealthDataProvider)? = nil,
+        currentProfileID: String? = nil,
         now: @escaping () -> Date = { DemoCareRepository.referenceDate }
     ) {
         self.repository = repository
         self.healthProvider = healthProvider
+        self.currentProfileID = currentProfileID
         self.now = now
         snapshot = repository.snapshot
         selectedSeniorID = repository.snapshot.seniors.first?.id ?? ""
@@ -184,11 +188,16 @@ import Observation
 
     // MARK: - Health Data Sync
 
+    /// Apple Health may only be read on the selected senior's own linked device, so a family
+    /// member's health data can never be stored as the senior's.
+    public var healthSyncEligibility: HealthSyncEligibility {
+        guard healthProvider != nil else { return .unavailableInDemo }
+        guard let currentProfileID, selectedSenior?.profileID == currentProfileID else { return .notLinkedSenior }
+        return .allowed
+    }
+
     public func syncHealthData() async {
-        guard let healthProvider = healthProvider else {
-            // No health provider in demo mode
-            return
-        }
+        guard let healthProvider, healthSyncEligibility == .allowed else { return }
 
         // Check if we have permission
         let status = await healthProvider.permissionStatus()
@@ -234,14 +243,17 @@ import Observation
     }
 
     public func requestHealthPermissions() async throws {
-        guard let healthProvider = healthProvider else {
-            throw CareServiceError.vendorUnavailable
+        switch healthSyncEligibility {
+        case .unavailableInDemo: throw CareServiceError.vendorUnavailable
+        case .notLinkedSenior: throw CareServiceError.unauthorized
+        case .allowed: break
         }
+        guard let healthProvider else { throw CareServiceError.vendorUnavailable }
         try await healthProvider.requestPermission()
     }
 
     public func setupAutomaticHealthSync() async {
-        guard let healthProvider = healthProvider else { return }
+        guard let healthProvider, healthSyncEligibility == .allowed else { return }
 
         // Start background sync (HKObserverQuery)
         try? await healthProvider.startBackgroundSync()
@@ -271,6 +283,14 @@ import Observation
         // Stop background sync
         await healthProvider.stopBackgroundSync()
     }
+}
+
+public enum HealthSyncEligibility: Equatable, Sendable {
+    /// Demo mode never reads Apple Health.
+    case unavailableInDemo
+    /// Signed in, but this login is not linked to the selected senior (e.g. a family member's phone).
+    case notLinkedSenior
+    case allowed
 }
 
 extension Notification.Name {

@@ -22,10 +22,14 @@ public struct AccountSenior: Identifiable, Equatable, Codable, Sendable {
     public var age: Int
     public var city: String
     public var timeZoneIdentifier: String
+    /// The login linked to this senior (their own device). Only that login may sync Apple Health.
+    public var profileID: String?
 
-    public init(id: String, accountID: String, name: String, age: Int, city: String, timeZoneIdentifier: String) {
+    public init(id: String, accountID: String, name: String, age: Int, city: String, timeZoneIdentifier: String,
+                profileID: String? = nil) {
         self.id = id
         self.accountID = accountID
+        self.profileID = profileID
         self.name = name
         self.age = age
         self.city = city

@@ -78,7 +78,22 @@ struct LiveModeView: View {
                 }
             }
 
-            if live.hasSenior {
+            if live.hasSenior, let repository = live.repository {
+                Section {
+                    if let linked = live.linkedSenior {
+                        LabeledContent("This login is", value: linked.name)
+                    } else {
+                        ForEach(repository.snapshot.seniors.filter { $0.profileID == nil }) { senior in
+                            Button("I am \(senior.name)") { Task { await live.claimSenior(id: senior.id) } }
+                                .accessibilityIdentifier("live.claimSenior")
+                        }
+                    }
+                } header: {
+                    Text("Senior device")
+                } footer: {
+                    Text("Only a member who joined as Senior can link. Only the linked senior's phone can share Apple Health data.")
+                }
+
                 Section("Live data") {
                     if (live.repository?.snapshot.medications.isEmpty ?? true) {
                         Button("Add starter medications and visit") {

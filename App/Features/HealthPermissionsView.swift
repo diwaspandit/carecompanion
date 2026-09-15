@@ -68,8 +68,17 @@ struct HealthPermissionsView: View {
                     .padding(16)
                     .background(.blue.opacity(0.1), in: RoundedRectangle(cornerRadius: 12))
 
+                    if let reason = syncUnavailableReason {
+                        Label(reason, systemImage: "info.circle.fill")
+                            .font(.system(size: 15))
+                            .padding(12)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(.gray.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
+                            .accessibilityIdentifier("health.syncUnavailable")
+                    }
+
                     // Current status
-                    if permissionStatus != .notDetermined {
+                    if syncUnavailableReason == nil && permissionStatus != .notDetermined {
                         VStack(alignment: .leading, spacing: 8) {
                             Text("Current Status")
                                 .font(.system(size: 17, weight: .semibold))
@@ -95,7 +104,7 @@ struct HealthPermissionsView: View {
                     }
 
                     // Action button
-                    if permissionStatus == .notDetermined || permissionStatus == .denied {
+                    if syncUnavailableReason == nil && (permissionStatus == .notDetermined || permissionStatus == .denied) {
                         Button {
                             Task {
                                 await requestPermission()
@@ -118,7 +127,7 @@ struct HealthPermissionsView: View {
                         .disabled(isRequesting)
                     }
 
-                    if permissionStatus == .authorized {
+                    if syncUnavailableReason == nil && permissionStatus == .authorized {
                         syncVerificationSection
                     }
 
@@ -137,6 +146,18 @@ struct HealthPermissionsView: View {
         }
         .task {
             await checkPermissionStatus()
+        }
+    }
+
+    private var syncUnavailableReason: String? {
+        switch state.healthSyncEligibility {
+        case .allowed:
+            return nil
+        case .unavailableInDemo:
+            return "Apple Health sync is off in the demo. Health values shown are sample data."
+        case .notLinkedSenior:
+            let name = state.selectedSenior?.name ?? "the senior"
+            return "Only \(name)'s own phone can share Apple Health data. Sign in on that phone and link it to \(name)."
         }
     }
 
@@ -249,13 +270,13 @@ struct HealthPermissionsView: View {
     }
 
     private func checkPermissionStatus() async {
-        if let healthProvider = state.healthProvider {
+        if state.healthSyncEligibility == .allowed, let healthProvider = state.healthProvider {
             permissionStatus = await healthProvider.permissionStatus()
         }
     }
 
     private func requestPermission() async {
-        guard let healthProvider = state.healthProvider else { return }
+        guard state.healthSyncEligibility == .allowed, let healthProvider = state.healthProvider else { return }
 
         isRequesting = true
         errorMessage = nil

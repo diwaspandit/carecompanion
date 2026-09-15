@@ -8,16 +8,8 @@ private enum CareRuntime {
 
 @main
 struct CareCompanionApp: App {
-    @State private var state: AppState = {
-        let repository = DemoCareRepository()
-        #if targetEnvironment(simulator) || os(iOS)
-        // Enable HealthKit integration for real health data sync
-        let healthProvider: (any HealthDataProvider)? = HealthKitHealthDataProvider()
-        #else
-        let healthProvider: (any HealthDataProvider)? = nil
-        #endif
-        return AppState(repository: repository, healthProvider: healthProvider)
-    }()
+    /// Demo mode never reads Apple Health; only live mode on the senior's linked device does.
+    @State private var state = AppState(repository: DemoCareRepository())
     @State private var live = LiveModeController()
     @State private var subscriptions = SubscriptionController()
     @Environment(\.scenePhase) private var scenePhase
@@ -979,18 +971,24 @@ private struct AIInsightReferenceCard: View {
 private struct SeniorReferenceCard: View {
     @Environment(AppState.self) private var state
 
+    private var latest: HealthTrend.Day? {
+        HealthTrend(snapshots: state.snapshot.health, seniorID: state.selectedSeniorID).latest
+    }
     private var stepsDisplay: String {
-        guard let health = state.latestHealth else { return "2,840" }
-        return health.steps.formatted()
+        latest.map { $0.steps.formatted() } ?? "—"
     }
     private var sleepDisplay: String {
-        guard let health = state.latestHealth else { return "6h 20min" }
-        return Self.sleepText(minutes: health.sleepMinutes)
+        guard let minutes = latest?.sleepMinutes, minutes > 0 else { return "—" }
+        return Self.sleepText(minutes: minutes)
     }
     private var dataSourceNotice: String {
-        state.latestHealth?.source == "healthkit"
-            ? "Steps and sleep synced from Apple Health."
-            : "Steps and sleep are demo data for this preview, not synced from HealthKit."
+        switch latest?.origin {
+        case .healthKit: "Steps and sleep synced from Apple Health."
+        case .deviceImport: "Steps and sleep imported from a connected device."
+        case .manual: "Steps and sleep entered manually by the family."
+        case .demo: "Steps and sleep are demo data for this preview, not synced from HealthKit."
+        case nil: "No steps or sleep data yet."
+        }
     }
     private static func sleepText(minutes: Int) -> String {
         "\(minutes / 60)h \(minutes % 60)min"
@@ -1186,15 +1184,22 @@ private struct FamilyProfileView: View {
             }
 
             VStack(alignment: .leading, spacing: 12) {
+                let trend = HealthTrend(snapshots: state.snapshot.health, seniorID: state.selectedSeniorID)
                 Text("Baseline health stats").font(.system(size: 17, weight: .black)).foregroundStyle(CareTheme.secondaryText)
-                Text("Demo data for this preview, not synced from HealthKit.")
+                Text(HealthSourceNotice.text(for: trend))
                     .font(.system(size: 12))
                     .foregroundStyle(CareTheme.mutedText)
                     .accessibilityIdentifier("profile.demoDataNotice")
                 LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
-                    SmallMetric(title: "Resting heart rate", value: "69 bpm", icon: "heart", color: CareTheme.coral)
-                    SmallMetric(title: "Average sleep", value: "7h 15min", icon: "moon", color: CareTheme.blue)
-                    SmallMetric(title: "Daily steps", value: "4,100", icon: "shoeprints.fill", color: CareTheme.blue)
+                    SmallMetric(title: "Resting heart rate",
+                                value: trend.restingHeartRateRange.map { "\($0.lowerBound)–\($0.upperBound) bpm" } ?? "—",
+                                icon: "heart", color: CareTheme.coral)
+                    SmallMetric(title: "Average sleep",
+                                value: trend.averageSleepHours.map { "\($0.formatted(.number.precision(.fractionLength(1))))h" } ?? "—",
+                                icon: "moon", color: CareTheme.blue)
+                    SmallMetric(title: "Daily steps",
+                                value: trend.days.isEmpty ? "—" : (trend.days.map(\.steps).reduce(0, +) / trend.days.count).formatted(),
+                                icon: "shoeprints.fill", color: CareTheme.blue)
                     SmallMetric(title: "Check-in time", value: "around 8:00 AM", icon: "clock", color: CareTheme.gold)
                 }
             }
@@ -1517,73 +1522,90 @@ private struct AlertRow: View {
 private struct HealthTimelineView: View {
     @Environment(AppState.self) private var state
 
-    private var dataSourceNotice: String {
-        state.latestHealth?.source == "healthkit"
-            ? "Synced from Apple Health."
-            : "Demo data for this preview, not synced from HealthKit."
-    }
+    private var trend: HealthTrend { HealthTrend(snapshots: state.snapshot.health, seniorID: state.selectedSeniorID) }
 
     var body: some View {
+        let trend = trend
         VStack(alignment: .leading, spacing: 18) {
             Text("Health Timeline").font(.system(size: 28, weight: .black))
-            Text("Maya Sharma · last 7 days").font(.system(size: 15)).foregroundStyle(CareTheme.secondaryText)
-            Text(dataSourceNotice)
+            Text("\(state.selectedSenior?.name ?? "Senior") · last 7 days").font(.system(size: 15)).foregroundStyle(CareTheme.secondaryText)
+            Text(HealthSourceNotice.text(for: trend))
                 .font(.system(size: 12))
                 .foregroundStyle(CareTheme.mutedText)
                 .accessibilityIdentifier("timeline.demoDataNotice")
             AIInsightReferenceCard()
-            SleepChartCard(latestHealth: state.latestHealth)
-            StepsChartCard(latestHealth: state.latestHealth)
-            HeartChartCard(latestHealth: state.latestHealth)
+            SleepChartCard(trend: trend)
+            StepsChartCard(trend: trend)
+            HeartChartCard(trend: trend)
             AdherenceCard()
             MoodTrendCard()
         }
     }
 }
 
+/// Labels where the shown health values came from, so seeded values never read as Apple Health.
+private enum HealthSourceNotice {
+    static func text(for trend: HealthTrend) -> String {
+        switch trend.latest?.origin {
+        case .healthKit: "Synced from Apple Health."
+        case .deviceImport: "Imported from a connected device."
+        case .manual: "Entered manually by the family."
+        case .demo: "Demo data for this preview, not synced from HealthKit."
+        case nil: "No health data yet."
+        }
+    }
+}
+
+private struct WeekdayLabels: View {
+    let days: [HealthTrend.Day]
+
+    var body: some View {
+        HStack {
+            ForEach(Array(days.enumerated()), id: \.offset) { _, day in
+                Text(day.date.formatted(.dateTime.weekday(.abbreviated)))
+                    .font(.system(size: 12)).foregroundStyle(CareTheme.secondaryText).frame(maxWidth: .infinity)
+            }
+        }
+    }
+}
+
 private struct SleepChartCard: View {
-    let latestHealth: HealthSnapshot?
-    let values: [CGFloat] = [7.4, 7.1, 6.8, 7.2, 6.1, 5.9, 6.3]
+    let trend: HealthTrend
 
     private var sleepDisplay: String {
-        guard let health = latestHealth else { return "6h 20min" }
-        return "\(health.sleepMinutes / 60)h \(health.sleepMinutes % 60)min"
+        guard let minutes = trend.latest?.sleepMinutes, minutes > 0 else { return "No sleep data" }
+        return "\(minutes / 60)h \(minutes % 60)min last night"
     }
 
     var body: some View {
+        let maxMinutes = max(trend.days.map(\.sleepMinutes).max() ?? 0, 1)
         LovableCard {
             VStack(alignment: .leading, spacing: 20) {
                 HStack {
                     Label("Sleep", systemImage: "moon").font(.system(size: 16, weight: .black)).foregroundStyle(CareTheme.secondaryText)
                     Spacer()
-                    Text("\(sleepDisplay) last night").font(.system(size: 15, weight: .black))
+                    Text(sleepDisplay).font(.system(size: 15, weight: .black))
                 }
                 HStack(alignment: .bottom, spacing: 10) {
-                    ForEach(Array(values.enumerated()), id: \.offset) { _, value in
+                    ForEach(Array(trend.days.enumerated()), id: \.offset) { _, day in
                         RoundedRectangle(cornerRadius: 14)
                             .fill(CareTheme.sage.opacity(0.82))
-                            .frame(height: 28 + value * 12)
+                            .frame(height: 12 + 108 * CGFloat(day.sleepMinutes) / CGFloat(maxMinutes))
                     }
                 }
                 .frame(height: 120, alignment: .bottom)
-                HStack {
-                    ForEach(["Thu", "Fri", "Sat", "Sun", "Mon", "Tue", "Wed"], id: \.self) { day in
-                        Text(day).font(.system(size: 12)).foregroundStyle(CareTheme.secondaryText).frame(maxWidth: .infinity)
-                    }
+                WeekdayLabels(days: trend.days)
+                if let average = trend.averageSleepHours {
+                    Text("Weekly average \(average.formatted(.number.precision(.fractionLength(1))))h")
+                        .font(.system(size: 13)).foregroundStyle(CareTheme.secondaryText)
                 }
-                Text("Weekly average 6.7h").font(.system(size: 13)).foregroundStyle(CareTheme.secondaryText)
             }
         }
     }
 }
 
 private struct StepsChartCard: View {
-    let latestHealth: HealthSnapshot?
-
-    private var stepsDisplay: String {
-        guard let health = latestHealth else { return "2,840" }
-        return health.steps.formatted()
-    }
+    let trend: HealthTrend
 
     var body: some View {
         LovableCard {
@@ -1591,9 +1613,10 @@ private struct StepsChartCard: View {
                 HStack {
                     Label("Steps", systemImage: "shoeprints.fill").font(.system(size: 16, weight: .black)).foregroundStyle(CareTheme.secondaryText)
                     Spacer()
-                    Text("\(stepsDisplay) today").font(.system(size: 15, weight: .black))
+                    Text(trend.latest.map { "\($0.steps.formatted()) today" } ?? "No step data")
+                        .font(.system(size: 15, weight: .black))
                 }
-                MiniLineChart(color: CareTheme.sage)
+                MiniLineChart(values: trend.days.map(\.steps), color: CareTheme.sage)
                     .frame(height: 140)
             }
         }
@@ -1601,12 +1624,7 @@ private struct StepsChartCard: View {
 }
 
 private struct HeartChartCard: View {
-    let latestHealth: HealthSnapshot?
-
-    private var heartRateDisplay: String {
-        guard let health = latestHealth else { return "72 bpm" }
-        return "\(health.restingHeartRate) bpm"
-    }
+    let trend: HealthTrend
 
     var body: some View {
         LovableCard {
@@ -1614,42 +1632,56 @@ private struct HeartChartCard: View {
                 HStack {
                     Label("Resting heart rate", systemImage: "heart").font(.system(size: 16, weight: .black)).foregroundStyle(CareTheme.secondaryText)
                     Spacer()
-                    Text(heartRateDisplay).font(.system(size: 15, weight: .black))
+                    Text(trend.latest.flatMap { $0.restingHeartRate > 0 ? "\($0.restingHeartRate) bpm" : nil } ?? "No reading")
+                        .font(.system(size: 15, weight: .black))
                 }
-                MiniLineChart(color: CareTheme.coral)
+                MiniLineChart(values: trend.days.map(\.restingHeartRate).filter { $0 > 0 }, color: CareTheme.coral)
                     .frame(height: 140)
-                Text("Range 67 bpm - 74 bpm").font(.system(size: 13)).foregroundStyle(CareTheme.secondaryText)
+                if let range = trend.restingHeartRateRange {
+                    Text("Range \(range.lowerBound) bpm - \(range.upperBound) bpm")
+                        .font(.system(size: 13)).foregroundStyle(CareTheme.secondaryText)
+                }
             }
         }
     }
 }
 
 private struct MiniLineChart: View {
+    let values: [Int]
     let color: Color
-    private let points: [CGFloat] = [0.58, 0.54, 0.68, 0.43, 0.32, 0.18, 0.22]
+
+    /// Values scaled into 0.15...0.85 of the height; a flat series draws a centered line.
+    private var points: [CGFloat] {
+        guard let low = values.min(), let high = values.max() else { return [] }
+        let span = CGFloat(max(high - low, 1))
+        return values.map { high == low ? 0.5 : 0.15 + 0.7 * CGFloat($0 - low) / span }
+    }
 
     var body: some View {
         GeometryReader { proxy in
             let width = proxy.size.width
             let height = proxy.size.height
-            Path { path in
-                for (index, point) in points.enumerated() {
-                    let x = CGFloat(index) / CGFloat(points.count - 1) * width
-                    let y = (1 - point) * height
-                    index == 0 ? path.move(to: CGPoint(x: x, y: y)) : path.addLine(to: CGPoint(x: x, y: y))
+            let points = points
+            if points.count > 1 {
+                Path { path in
+                    for (index, point) in points.enumerated() {
+                        let x = CGFloat(index) / CGFloat(points.count - 1) * width
+                        let y = (1 - point) * height
+                        index == 0 ? path.move(to: CGPoint(x: x, y: y)) : path.addLine(to: CGPoint(x: x, y: y))
+                    }
                 }
-            }
-            .stroke(color, style: StrokeStyle(lineWidth: 2.3, lineCap: .round, lineJoin: .round))
-            Path { path in
-                path.move(to: CGPoint(x: 0, y: height))
-                for (index, point) in points.enumerated() {
-                    let x = CGFloat(index) / CGFloat(points.count - 1) * width
-                    let y = (1 - point) * height
-                    path.addLine(to: CGPoint(x: x, y: y))
+                .stroke(color, style: StrokeStyle(lineWidth: 2.3, lineCap: .round, lineJoin: .round))
+                Path { path in
+                    path.move(to: CGPoint(x: 0, y: height))
+                    for (index, point) in points.enumerated() {
+                        let x = CGFloat(index) / CGFloat(points.count - 1) * width
+                        let y = (1 - point) * height
+                        path.addLine(to: CGPoint(x: x, y: y))
+                    }
+                    path.addLine(to: CGPoint(x: width, y: height))
                 }
-                path.addLine(to: CGPoint(x: width, y: height))
+                .fill(color.opacity(0.12))
             }
-            .fill(color.opacity(0.12))
         }
     }
 }
