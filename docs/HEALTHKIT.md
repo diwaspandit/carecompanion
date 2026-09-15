@@ -16,7 +16,7 @@ Read access only. Release builds never write to Apple Health. Debug builds have 
 
 ```
 Senior's iPhone                      Supabase (RLS)                    Family iPhones
-HealthKit samples ─► HealthDayAggregator ─► health_snapshots row ─► realtime refresh ─► Health tab
+HealthKit samples -> HealthDayAggregator -> health_snapshots row -> realtime refresh -> Health tab
 (stay on device)     one row per day        source = 'healthkit'
 ```
 
@@ -37,14 +37,14 @@ HealthKit samples ─► HealthDayAggregator ─► health_snapshots row ─► 
 
 `AppState.syncHealthData()` runs only when the signed-in user is linked to a senior record (`account_seniors.profile_id`) and permission has been requested:
 
-1. Right after the senior allows access (Settings › Apple Health, or the Apple Health card on the senior home screen).
+1. Right after the senior allows access (Settings > Apple Health, or the Apple Health card on the senior home screen).
 2. Whenever the app becomes active.
 3. When `HKObserverQuery` background delivery reports new samples (hourly).
 4. "Share now" in the Apple Health sheet.
 
 ## Permissions
 
-HealthKit never tells an app whether read access was granted. The provider records that the system prompt was shown and treats the result of each query as the truth: denied types simply return no samples. The sheet explains how to stop sharing (Health app › Sharing › Apps › CareCompanion) and links to Settings.
+HealthKit never tells an app whether read access was granted. The provider records that the system prompt was shown and treats the result of each query as the truth: denied types simply return no samples. The sheet explains how to stop sharing (Health app > Sharing > Apps > CareCompanion) and links to Settings.
 
 ## Family view
 
@@ -70,4 +70,4 @@ swift test --filter HealthDayAggregatorTests
 swift test --filter CareCoreTests/testHealthSync
 ```
 
-On the Simulator, as the senior user: Settings › Apple Health › "Write a sample week into Apple Health", then confirm the family device's Health tab shows seven days.
+On the Simulator, as the senior user: Settings > Apple Health > "Write a sample week into Apple Health", then confirm the family device's Health tab shows seven days.

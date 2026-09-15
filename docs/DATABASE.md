@@ -17,8 +17,8 @@ There is no custom server. The service_role key and the Supabase access token ar
 | `Config/Secrets.xcconfig` (git-ignored) | `SUPABASE_HOST`, `SUPABASE_ANON_KEY`; template in `Secrets.xcconfig.example` |
 | `App/Services/SupabaseCareRepository.swift` | `CareRepository` over PostgREST plus realtime refresh |
 | `App/Services/SupabaseAuthSessionService.swift` | Email/password sign-up and sign-in, password reset, deep links |
-| `App/Services/SessionController.swift` | Session → profile → account → `AppState` |
-| `Sources/CareCore/CareRecords.swift` | Vendor-free row types and row → `CareSnapshot` mapping (unit tested) |
+| `App/Services/SessionController.swift` | Session, then profile, then account, then `AppState` |
+| `Sources/CareCore/CareRecords.swift` | Vendor-free row types and row to `CareSnapshot` mapping (unit tested) |
 
 ## Schema
 
@@ -28,7 +28,7 @@ Every care table carries `account_id` (denormalized) so each RLS check is one in
 | --- | --- | --- |
 | `profiles` | One row per auth user: `display_name`, `city`, `phone` | Created by `on_auth_user_created` |
 | `care_accounts` | A family | `invite_code` lets others join |
-| `account_members` | Profile ↔ account, role `senior` or `family` | Unique per (account, profile) |
+| `account_members` | Profile to account link, role `senior` or `family` | Unique per (account, profile) |
 | `account_seniors` | Monitored senior | `profile_id` links the senior's own login; soft delete |
 | `check_ins` | "I'm okay" confirmations | |
 | `mood_entries` | `Great` / `Okay` / `Low` plus optional note | |
@@ -39,7 +39,7 @@ Every care table carries `account_id` (denormalized) so each RLS check is one in
 | `alerts` | SOS | Partial unique index: one open SOS per senior |
 | `emergency_contacts` | Name, relation, phone per senior | Shown on the SOS screen |
 | `messages` | Family conversation per account | `sender_profile_id` defaults to the caller |
-| `care_insights`, `appointment_ai_preps` | Reserved for server-side AI (Phase 6) | Not written by the app today |
+| `care_insights`, `appointment_ai_preps` | Reserved for a future server-generated insight | Not written by the app today |
 | `subscription_statuses` | Reserved for RevenueCat | Premium is free for now |
 | `audit_events` | Account created, member joined, senior claimed | Append-only for members |
 
@@ -108,7 +108,7 @@ sequenceDiagram
     Maya->>DB: rpc claim_senior(Maya's senior id)
     Maya->>DB: insert check_ins, mood_entries; upsert health_snapshots
     DB-->>RT: postgres_changes (RLS-filtered)
-    RT-->>Diwas: change event → refresh → dashboard
+    RT-->>Diwas: change event, refresh, dashboard
 ```
 
 Realtime-published tables: `account_members`, `account_seniors`, `check_ins`, `mood_entries`, `medications`, `medication_events`, `health_snapshots`, `appointments`, `alerts`, `appointment_ai_preps`, `emergency_contacts`, `messages`.
@@ -116,7 +116,7 @@ Realtime-published tables: `account_members`, `account_seniors`, `check_ins`, `m
 ## Live project set-up
 
 1. Apply every file in `Supabase/migrations/` in order (SQL Editor, `psql`, or the Management API).
-2. Authentication › URL Configuration: `carecompanion://login-callback` must be in Redirect URLs (it is).
-3. Authentication › Providers › Email: enabled, with "Confirm email" on.
+2. Authentication > URL Configuration: `carecompanion://login-callback` must be in Redirect URLs (it is).
+3. Authentication > Providers > Email: enabled, with "Confirm email" on.
 4. Before launch, configure custom SMTP. The built-in email service is limited to a few emails per hour, which blocks real sign-ups and password resets.
 5. `Config/Secrets.xcconfig` holds the project host and publishable key.

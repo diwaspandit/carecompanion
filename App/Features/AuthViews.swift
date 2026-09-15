@@ -15,6 +15,7 @@ struct WelcomeView: View {
     @State private var confirmPassword = ""
     @State private var showForgotPassword = false
     @FocusState private var focused: Field?
+    @ScaledMetric(relativeTo: .largeTitle) private var titleSize = 30
 
     private enum Field { case email, password, confirm }
 
@@ -33,17 +34,24 @@ struct WelcomeView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                CircleIcon(systemName: "heart.text.square", color: CareTheme.sageDark, size: 56, iconSize: 25, fillOpacity: 0.20)
-                    .padding(.top, 56)
+                OnboardingConnectionView()
+                    .padding(.horizontal, -8)
+                    .padding(.top, 24)
                 Text("Care that travels\nacross time zones.")
-                    .font(.system(size: 34, weight: .black, design: .rounded))
+                    .font(.system(size: titleSize, weight: .bold, design: .rounded))
+                    .lineSpacing(3)
                     .foregroundStyle(CareTheme.ink)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity)
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityIdentifier("welcome.title")
                 Text("Daily check-ins, medicines, visits and Apple Health, shared between a senior and the family looking after them.")
-                    .font(.system(size: 17))
-                    .lineSpacing(5)
-                    .foregroundStyle(CareTheme.secondaryText)
+                    .font(.subheadline)
+                    .lineSpacing(3)
+                    .foregroundStyle(CareTheme.mutedText)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity)
+                    .fixedSize(horizontal: false, vertical: true)
 
                 Picker("Mode", selection: $mode) {
                     ForEach(Mode.allCases) { Text($0.rawValue).tag($0) }

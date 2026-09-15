@@ -19,6 +19,7 @@ enum CareTheme {
     static let grayPill = Color(red: 244/255, green: 243/255, blue: 240/255)
     static let cardStroke = Color.black.opacity(0.10)
     static let shadow = Color.black.opacity(0.08)
+    static let heading = Color(red: 0.16, green: 0.23, blue: 0.31)
 
     static func seniorColor(at index: Int) -> Color {
         [gold, sage, blue, coral][index % 4]
@@ -72,6 +73,39 @@ struct AvatarCircle: View {
             .background(color.opacity(0.18), in: Circle())
             .overlay(Circle().stroke(selected ? color : Color.black.opacity(0.08), lineWidth: selected ? 2 : 1))
             .accessibilityHidden(true)
+    }
+}
+
+/// A senior's photo when the app bundles a portrait for their first name, otherwise their initials.
+struct SeniorAvatar: View {
+    let name: String
+    let initials: String
+    var color = CareTheme.sage
+    var size: CGFloat = 58
+
+    private var portraitName: String? {
+        guard let first = name.split(separator: " ").first else { return nil }
+        let asset = "\(first.prefix(1).uppercased())\(first.dropFirst().lowercased())Portrait"
+        return UIImage(named: asset) == nil ? nil : asset
+    }
+
+    var body: some View {
+        if let portraitName {
+            Image(portraitName)
+                .renderingMode(.original)
+                .resizable()
+                .scaledToFill()
+                .frame(width: size, height: size)
+                .clipShape(Circle())
+                .accessibilityHidden(true)
+        } else {
+            Text(initials)
+                .font(.system(size: size * 0.3, weight: .bold, design: .rounded))
+                .foregroundStyle(CareTheme.ink)
+                .frame(width: size, height: size)
+                .background(color.opacity(0.22), in: Circle())
+                .accessibilityHidden(true)
+        }
     }
 }
 

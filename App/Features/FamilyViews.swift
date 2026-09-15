@@ -8,43 +8,52 @@ struct FamilyRootView: View {
 
     var body: some View {
         @Bindable var state = state
-        VStack(spacing: 0) {
-            Group {
-                if state.familyTab == .messages {
-                    MessagesScreen()
-                } else {
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 20) {
-                            switch state.familyTab {
-                            case .dashboard: FamilyHome(showSettings: $showSettings)
-                            case .health: HealthTimelineView()
-                            case .alerts: AlertsView()
-                            case .appointments: FamilyVisitsView()
-                            case .profile: FamilyProfileView(showSettings: $showSettings)
-                            case .messages: EmptyView()
+        NavigationStack {
+            VStack(spacing: 0) {
+                Group {
+                    if state.familyTab == .messages {
+                        MessagesScreen()
+                    } else {
+                        ScrollView {
+                            VStack(alignment: .leading, spacing: 20) {
+                                switch state.familyTab {
+                                case .dashboard: FamilyHome(showSettings: $showSettings)
+                                case .health: HealthTimelineView()
+                                case .alerts: AlertsView()
+                                case .appointments: FamilyVisitsView()
+                                case .profile: FamilyProfileView(showSettings: $showSettings)
+                                case .messages: EmptyView()
+                                }
                             }
+                            .padding(.horizontal, 20)
+                            .padding(.top, state.familyTab == .dashboard ? 22 : 24)
+                            .padding(.bottom, 24)
                         }
-                        .padding(.horizontal, 20)
-                        .padding(.top, 24)
-                        .padding(.bottom, 24)
+                        .refreshable { await state.refresh() }
                     }
-                    .refreshable { await state.refresh() }
+                }
+                .frame(maxHeight: .infinity)
+                ReferenceBottomBar(
+                    items: [
+                        (.dashboard, "Home", "square.grid.2x2", nil),
+                        (.health, "Health", "waveform.path.ecg", nil),
+                        (.alerts, "Alerts", "bell", state.activeAlertCount > 0 ? state.activeAlertCount : nil),
+                        (.appointments, "Visits", "calendar", nil),
+                        (.messages, "Messages", "bubble.left.and.bubble.right", nil),
+                        (.profile, "Profile", "person.crop.circle", nil)
+                    ],
+                    selection: $state.familyTab
+                )
+            }
+            .background {
+                if state.familyTab == .dashboard {
+                    FamilyHomeBackdrop().ignoresSafeArea()
+                } else {
+                    CareTheme.background.ignoresSafeArea()
                 }
             }
-            .frame(maxHeight: .infinity)
-            ReferenceBottomBar(
-                items: [
-                    (.dashboard, "Home", "square.grid.2x2", nil),
-                    (.health, "Health", "waveform.path.ecg", nil),
-                    (.alerts, "Alerts", "bell", state.activeAlertCount > 0 ? state.activeAlertCount : nil),
-                    (.appointments, "Visits", "calendar", nil),
-                    (.messages, "Messages", "bubble.left.and.bubble.right", nil),
-                    (.profile, "Profile", "person.crop.circle", nil)
-                ],
-                selection: $state.familyTab
-            )
+            .toolbar(.hidden, for: .navigationBar)
         }
-        .background(CareTheme.background.ignoresSafeArea())
         .sheet(isPresented: $showSettings) { SettingsView().environment(state) }
     }
 }
@@ -55,92 +64,301 @@ private struct FamilyHome: View {
     @Environment(AppState.self) private var state
     @Binding var showSettings: Bool
     @State private var showAddSenior = false
+    @State private var detailSeniorID: String?
 
     private var greeting: String {
         let hour = Calendar.current.component(.hour, from: Date())
         let part = hour < 12 ? "Good morning" : (hour < 17 ? "Good afternoon" : "Good evening")
         guard let me = state.currentMember, !me.name.isEmpty else { return part }
-        return "\(part), \(me.name.split(separator: " ").first.map(String.init) ?? me.name)"
+        return "\(part),\n\(me.name.split(separator: " ").first.map(String.init) ?? me.name)"
     }
 
     var body: some View {
         let indexed = Array(state.seniorSummaries.enumerated())
-        let ordered = indexed.filter { $0.element.id == state.selectedSeniorID } + indexed.filter { $0.element.id != state.selectedSeniorID }
-        VStack(alignment: .leading, spacing: 20) {
-            HStack(alignment: .top) {
-                ScreenTitle(title: state.snapshot.account.name, subtitle: greeting)
-                    .accessibilityIdentifier("family.title")
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text(greeting)
+                        .font(.system(.title, design: .rounded).weight(.bold))
+                        .foregroundStyle(CareTheme.heading)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityAddTraits(.isHeader)
+                        .accessibilityIdentifier("family.title")
+                    Text(state.snapshot.account.name.isEmpty ? "Together for what matters most." : state.snapshot.account.name)
+                        .font(.subheadline)
+                        .foregroundStyle(CareTheme.mutedText)
+                }
+                Spacer(minLength: 0)
                 Button { showSettings = true } label: {
                     Text(state.currentMember?.name.first.map { String($0).uppercased() } ?? "·")
-                        .font(.system(size: 16, weight: .black))
-                        .foregroundStyle(CareTheme.ink)
-                        .frame(width: 44, height: 44)
-                        .background(CareTheme.grayPill, in: Circle())
+                        .font(.system(.subheadline, design: .rounded).weight(.bold))
+                        .foregroundStyle(CareTheme.heading)
+                        .frame(width: 42, height: 42)
+                        .background(.white.opacity(0.8), in: Circle())
                 }
+                .buttonStyle(.plain)
                 .accessibilityLabel("Settings")
                 .accessibilityIdentifier("family.settings")
             }
+            .padding(.bottom, 6)
 
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 12) {
-                    ForEach(indexed, id: \.element.id) { index, summary in
-                        Button { state.selectSenior(id: summary.id) } label: {
-                            VStack(spacing: 7) {
-                                AvatarCircle(text: summary.initials, color: CareTheme.seniorColor(at: index), size: 58,
-                                             selected: summary.id == state.selectedSeniorID)
-                                Text(summary.firstName).font(.system(size: 12, weight: .bold)).foregroundStyle(CareTheme.secondaryText)
-                            }
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel(summary.senior.name)
-                        .accessibilityAddTraits(summary.id == state.selectedSeniorID ? .isSelected : [])
+            if let selected = state.selectedSummary {
+                FamilyStatusCard(summary: selected) {
+                    if selected.hasEmergency || state.activeAlertCount > 0 {
+                        state.familyTab = .alerts
+                    } else {
+                        detailSeniorID = selected.id
                     }
-                    Button { showAddSenior = true } label: {
-                        VStack(spacing: 7) {
-                            AvatarCircle(text: "+", color: CareTheme.secondaryText, size: 58)
-                            Text("Add").font(.system(size: 12, weight: .bold)).foregroundStyle(CareTheme.secondaryText)
-                        }
+                }
+            }
+
+            LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 12) {
+                ForEach(indexed, id: \.element.id) { index, summary in
+                    Button {
+                        state.selectSenior(id: summary.id)
+                        detailSeniorID = summary.id
+                    } label: {
+                        FamilyProfileTile(summary: summary, color: CareTheme.seniorColor(at: index),
+                                          isSelected: summary.id == state.selectedSeniorID)
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel("Add a senior")
-                    .accessibilityIdentifier("family.addSenior")
+                    .accessibilityLabel("\(summary.senior.name), \(FamilyProfileTile.status(for: summary).text)")
+                    .accessibilityAddTraits(summary.id == state.selectedSeniorID ? .isSelected : [])
+                    .accessibilityIdentifier("family.senior.\(summary.firstName.lowercased())")
                 }
-            }
-
-            if let selected = state.selectedSummary, let item = selected.attentionItems.first {
-                Button { state.familyTab = .alerts } label: {
-                    HStack(spacing: 14) {
-                        Text("\(state.activeAlertCount)")
-                            .font(.system(size: 16, weight: .black))
-                            .foregroundStyle(.white)
-                            .frame(width: 40, height: 40)
-                            .background(CareTheme.coral, in: Circle())
-                        Text("\(selected.firstName): \(item)")
-                            .font(.system(size: 15, weight: .black))
-                            .foregroundStyle(CareTheme.coralDark)
-                            .multilineTextAlignment(.leading)
-                        Spacer()
-                        Image(systemName: "chevron.right").font(.system(size: 13, weight: .black)).foregroundStyle(CareTheme.coralDark)
+                Button { showAddSenior = true } label: {
+                    VStack(spacing: 8) {
+                        Image(systemName: "plus")
+                            .font(.system(size: 26, weight: .semibold))
+                            .foregroundStyle(CareTheme.sageDark)
+                            .frame(width: 80, height: 80)
+                            .background(CareTheme.sagePale.opacity(0.7), in: Circle())
+                        Text("Add")
+                            .font(.system(.headline, design: .rounded))
+                            .foregroundStyle(CareTheme.heading)
+                        Text("Someone you care for")
+                            .font(.caption)
+                            .foregroundStyle(CareTheme.mutedText)
                     }
-                    .padding(16)
-                    .background(CareTheme.coralPale, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: 28).stroke(CareTheme.coral.opacity(0.35)))
+                    .multilineTextAlignment(.center)
+                    .padding(14)
+                    .frame(maxWidth: .infinity, minHeight: 150)
+                    .background(.white.opacity(0.6), in: RoundedRectangle(cornerRadius: 26, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 26, style: .continuous)
+                        .stroke(CareTheme.sage.opacity(0.45), style: StrokeStyle(lineWidth: 1.5, dash: [6, 5])))
                 }
                 .buttonStyle(.plain)
-                .accessibilityIdentifier("family.attention")
+                .accessibilityLabel("Add a senior")
+                .accessibilityIdentifier("family.addSenior")
             }
 
-            CareInsightCard()
-
-            ForEach(ordered, id: \.element.id) { index, summary in
-                Button { state.selectSenior(id: summary.id) } label: {
-                    SeniorSummaryCard(summary: summary, color: CareTheme.seniorColor(at: index),
-                                      isSelected: summary.id == state.selectedSeniorID)
+            if let selected = state.selectedSummary {
+                Button { detailSeniorID = selected.id } label: {
+                    HStack(spacing: 12) {
+                        Image(systemName: "sparkles")
+                            .font(.system(size: 20))
+                            .foregroundStyle(CareTheme.sageDark)
+                            .accessibilityHidden(true)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Care insight")
+                                .font(.system(.subheadline, design: .rounded).weight(.semibold))
+                                .foregroundStyle(CareTheme.heading)
+                            Text("A little context for \(selected.firstName)'s day")
+                                .font(.caption)
+                                .foregroundStyle(CareTheme.mutedText)
+                        }
+                        Spacer(minLength: 0)
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(CareTheme.sageDark)
+                    }
+                    .padding(14)
+                    .background(.white.opacity(0.85), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
                 }
                 .buttonStyle(.plain)
+                .accessibilityIdentifier("family.insightTeaser")
             }
+
+            Text("A little closer, every day.")
+                .font(.system(.subheadline, design: .rounded))
+                .foregroundStyle(CareTheme.heading.opacity(0.8))
+                .frame(maxWidth: .infinity)
+                .padding(.top, 4)
+                .padding(.bottom, 6)
+        }
+        .navigationDestination(item: $detailSeniorID) { _ in
+            FamilyCareDetailView()
         }
         .sheet(isPresented: $showAddSenior) { AddSeniorSheet().environment(state) }
+    }
+}
+
+/// The selected senior's day in one sentence, leading to alerts or their care details.
+private struct FamilyStatusCard: View {
+    let summary: SeniorCareSummary
+    let action: () -> Void
+
+    private var title: String {
+        if summary.hasEmergency { return "\(summary.firstName) sent an SOS" }
+        return summary.isCheckedIn ? "\(summary.firstName) checked in today" : "Waiting to hear from \(summary.firstName)"
+    }
+
+    private var detail: String {
+        if summary.hasEmergency { return "Open the alert to respond." }
+        guard let first = summary.attentionItems.first(where: { !$0.hasPrefix("no check-in") }) ?? summary.attentionItems.first else {
+            return "You're up to date on \(summary.firstName)'s day."
+        }
+        let extra = summary.attentionItems.count - 1
+        return first.prefix(1).uppercased() + first.dropFirst() + (extra > 0 ? " and \(extra) more." : ".")
+    }
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 14) {
+                Image(systemName: summary.hasEmergency ? "exclamationmark.triangle.fill" : "heart.fill")
+                    .font(.system(size: 22, weight: .semibold))
+                    .foregroundStyle(summary.hasEmergency ? .white : CareTheme.coral)
+                    .frame(width: 44, height: 44)
+                    .background(summary.hasEmergency ? CareTheme.coral : CareTheme.coralPale, in: Circle())
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(title)
+                        .font(.system(.subheadline, design: .rounded).weight(.bold))
+                        .foregroundStyle(CareTheme.heading)
+                    Text(detail)
+                        .font(.caption)
+                        .foregroundStyle(CareTheme.mutedText)
+                }
+                .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(CareTheme.mutedText)
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(.white.opacity(0.95), in: RoundedRectangle(cornerRadius: 26, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 26, style: .continuous).stroke(summary.hasEmergency ? CareTheme.coral : .clear, lineWidth: 2))
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("family.status")
+    }
+}
+
+private struct FamilyProfileTile: View {
+    let summary: SeniorCareSummary
+    let color: Color
+    let isSelected: Bool
+
+    static func status(for summary: SeniorCareSummary) -> (text: String, color: Color, icon: String) {
+        if summary.hasEmergency { return ("SOS needs attention", CareTheme.coral, "exclamationmark") }
+        if !summary.isCheckedIn { return ("No check-in yet", CareTheme.mutedText, "clock") }
+        if summary.needsAttention { return ("Needs attention", CareTheme.goldDark, "exclamationmark") }
+        return ("Checked in today", CareTheme.sageDark, "checkmark")
+    }
+
+    var body: some View {
+        let status = Self.status(for: summary)
+        VStack(spacing: 6) {
+            ZStack(alignment: .bottomTrailing) {
+                SeniorAvatar(name: summary.senior.name, initials: summary.initials, color: color, size: 74)
+                    .padding(3)
+                    .background(CareTheme.coralPale.opacity(0.65), in: Circle())
+                Image(systemName: status.icon)
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 20, height: 20)
+                    .background(status.color, in: Circle())
+                    .overlay(Circle().stroke(.white, lineWidth: 2))
+            }
+            .accessibilityHidden(true)
+            Text(summary.firstName)
+                .font(.system(.headline, design: .rounded))
+                .foregroundStyle(CareTheme.heading)
+                .lineLimit(1)
+            Text(status.text)
+                .font(.caption)
+                .foregroundStyle(status.color)
+                .accessibilityIdentifier(isSelected ? "family.tileStatus" : "")
+        }
+        .multilineTextAlignment(.center)
+        .fixedSize(horizontal: false, vertical: true)
+        .padding(14)
+        .frame(maxWidth: .infinity, minHeight: 150)
+        .background(.white, in: RoundedRectangle(cornerRadius: 26, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 26, style: .continuous).stroke(isSelected ? CareTheme.sage.opacity(0.6) : .clear, lineWidth: 2))
+        .shadow(color: CareTheme.ink.opacity(0.035), radius: 12, y: 5)
+    }
+}
+
+/// The selected senior's full daily summary and care insight.
+private struct FamilyCareDetailView: View {
+    @Environment(AppState.self) private var state
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        let indexed = Array(state.seniorSummaries.enumerated())
+        let index = indexed.first { $0.element.id == state.selectedSeniorID }?.offset ?? 0
+        ScrollView {
+            VStack(spacing: 20) {
+                if let summary = state.selectedSummary {
+                    SeniorSummaryCard(summary: summary, color: CareTheme.seniorColor(at: index), isSelected: true)
+                    CareInsightCard(onViewTimeline: { dismiss() })
+                }
+            }
+            .padding(20)
+        }
+        .refreshable { await state.refresh() }
+        .background(CareTheme.background.ignoresSafeArea())
+        .navigationTitle(state.selectedSummary.map { "\($0.firstName)'s care" } ?? "Care")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar(.visible, for: .navigationBar)
+    }
+}
+
+private struct FamilyHomeBackdrop: View {
+    var body: some View {
+        GeometryReader { geometry in
+            ZStack(alignment: .topTrailing) {
+                CareTheme.background
+                Circle()
+                    .fill(CareTheme.coralPale)
+                    .frame(width: 82, height: 82)
+                    .offset(x: -24, y: 70)
+                FamilyLandscapeWave()
+                    .fill(CareTheme.bluePale.opacity(0.45))
+                    .frame(height: 115)
+                    .offset(y: 96)
+                VStack(spacing: 0) {
+                    Spacer()
+                    ZStack {
+                        FamilyLandscapeWave()
+                            .fill(CareTheme.coralPale.opacity(0.55))
+                            .scaleEffect(x: -1, y: 1)
+                            .offset(y: -22)
+                        FamilyLandscapeWave()
+                            .fill(CareTheme.bluePale.opacity(0.65))
+                    }
+                    .frame(height: geometry.size.height * 0.19)
+                }
+            }
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+}
+
+private struct FamilyLandscapeWave: Shape {
+    func path(in rect: CGRect) -> Path {
+        Path { path in
+            path.move(to: CGPoint(x: 0, y: rect.height * 0.4))
+            path.addCurve(to: CGPoint(x: rect.width, y: rect.height * 0.25),
+                          control1: CGPoint(x: rect.width * 0.35, y: -rect.height * 0.25),
+                          control2: CGPoint(x: rect.width * 0.62, y: rect.height * 1.1))
+            path.addLine(to: CGPoint(x: rect.width, y: rect.height))
+            path.addLine(to: CGPoint(x: 0, y: rect.height))
+            path.closeSubpath()
+        }
     }
 }
 
@@ -187,6 +405,7 @@ private struct AddSeniorSheet: View {
 
 private struct CareInsightCard: View {
     @Environment(AppState.self) private var state
+    var onViewTimeline: (() -> Void)? = nil
 
     var body: some View {
         LovableCard {
@@ -213,7 +432,10 @@ private struct CareInsightCard: View {
                     } else {
                         ProgressView()
                     }
-                    Button { state.familyTab = .health } label: {
+                    Button {
+                        state.familyTab = .health
+                        onViewTimeline?()
+                    } label: {
                         Label("View health timeline", systemImage: "chevron.right")
                             .font(.system(size: 14, weight: .black))
                             .foregroundStyle(CareTheme.sageDark)
@@ -275,10 +497,12 @@ private struct SeniorSummaryCard: View {
         LovableCard {
             VStack(spacing: 16) {
                 HStack(spacing: 14) {
-                    AvatarCircle(text: summary.initials, color: color, size: 48, selected: isSelected)
+                    SeniorAvatar(name: summary.senior.name, initials: summary.initials, color: color, size: 52)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(summary.senior.name).font(.system(size: 20, weight: .black)).foregroundStyle(CareTheme.ink)
+                            .lineLimit(1).minimumScaleFactor(0.75)
                         Text(subtitle).font(.system(size: 13)).foregroundStyle(CareTheme.secondaryText)
+                            .lineLimit(2)
                     }
                     Spacer()
                     PlainPill(text: status.text, icon: "circle.fill", color: status.color, fill: status.fill)
@@ -304,6 +528,8 @@ private struct SeniorSummaryCard: View {
                                 icon: "shoeprints.fill", color: CareTheme.blue, identifier: isSelected ? "family.steps" : nil)
                     SmallMetric(title: "Sleep", value: stat(summary.latestHealth?.sleepMinutes) { SeniorCareSummary.duration(minutes: $0) },
                                 icon: "moon", color: CareTheme.blue, identifier: isSelected ? "family.sleep" : nil)
+                    SmallMetric(title: "Resting heart rate", value: stat(summary.latestHealth?.restingHeartRate) { "\($0) bpm" },
+                                icon: "heart", color: CareTheme.coral, identifier: isSelected ? "family.heartRate" : nil)
                 }
                 HStack {
                     Text(healthNotice)
@@ -855,7 +1081,7 @@ private struct FamilyProfileView: View {
                 LovableCard {
                     VStack(alignment: .leading, spacing: 14) {
                         HStack(spacing: 14) {
-                            AvatarCircle(text: care.initials, color: CareTheme.gold, size: 56)
+                            SeniorAvatar(name: care.senior.name, initials: care.initials, color: CareTheme.gold, size: 56)
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(care.senior.name).font(.system(size: 20, weight: .black))
                                 Text([care.senior.city, "\(care.senior.age) years"].filter { !$0.isEmpty }.joined(separator: " · "))

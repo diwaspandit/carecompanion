@@ -141,20 +141,25 @@ private struct RoleCard: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: 16) {
-                CircleIcon(systemName: icon, color: selected ? .white : CareTheme.sageDark, size: 52, iconSize: 22,
+                CircleIcon(systemName: icon, color: selected ? .white : CareTheme.sageDark, size: 48, iconSize: 22,
                            fillOpacity: selected ? 0.22 : 0.16)
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(title).font(.system(size: 19, weight: .black))
-                    Text(subtitle).font(.system(size: 14)).opacity(0.8)
+                    Text(title).font(.system(.title3, design: .rounded).weight(.bold))
+                    Text(subtitle).font(.subheadline).lineSpacing(2).opacity(0.85)
                 }
+                .fixedSize(horizontal: false, vertical: true)
+                .layoutPriority(1)
                 Spacer()
                 Image(systemName: selected ? "checkmark.circle.fill" : "circle")
                     .font(.system(size: 24))
             }
             .foregroundStyle(selected ? .white : CareTheme.ink)
-            .padding(18)
+            .padding(.horizontal, 20)
+            .padding(.vertical, 18)
+            .frame(minHeight: 88)
             .background(selected ? CareTheme.sage : .white, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 28, style: .continuous).stroke(selected ? .clear : CareTheme.cardStroke))
+            .shadow(color: selected ? CareTheme.sage.opacity(0.18) : CareTheme.shadow.opacity(0.5), radius: 12, y: 6)
         }
         .buttonStyle(.plain)
         .accessibilityAddTraits(selected ? .isSelected : [])
