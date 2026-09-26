@@ -125,6 +125,15 @@ final class CareRecordsTests: XCTestCase {
         XCTAssertNil(snapshot.messages.first?.senderProfileID)
     }
 
+    func testAReadFromSomeoneElseMarksTheMessageSeen() throws {
+        var source = records(messages: [
+            MessageRow(id: "late", senderProfileID: "p-diwas", body: "Yes", createdAt: date("2026-09-14T04:00:00Z"))
+        ])
+        source.reads = [MessageReadRow(messageID: "late", profileID: "p-maya")]
+        let message = try XCTUnwrap(source.snapshot(now: now).messages.first)
+        XCTAssertEqual(message.readerProfileIDs, ["p-maya"])
+    }
+
     func testUnknownEnumValuesAreRejected() {
         var bad = records()
         bad.moods = [MoodEntryRow(id: "x", seniorID: maya, mood: "Ecstatic", occurredAt: now)]
@@ -207,25 +216,61 @@ private final class FailingRefreshRepository: CareRepository {
     func checkIn(seniorID: String, at date: Date) async throws { throw CareServiceError.offline }
     func recordMood(_ mood: Mood, seniorID: String, at date: Date, note: String?) async throws { throw CareServiceError.offline }
     func recordMedicationEvent(medicationID: String, taken: Bool, at date: Date) async throws { throw CareServiceError.offline }
-    func addMedication(seniorID: String, name: String, dosage: String, scheduledTime: String) async throws { throw CareServiceError.offline }
-    func updateMedication(id: String, name: String, dosage: String, scheduledTime: String) async throws { throw CareServiceError.offline }
+    func snoozeMedication(id: String, until: Date) async throws { throw CareServiceError.offline }
+    func addMedication(seniorID: String, name: String, dosage: String, scheduledTime: String, weekdays: [Int], endsOn: Date?) async throws { throw CareServiceError.offline }
+    func updateMedication(id: String, name: String, dosage: String, scheduledTime: String, weekdays: [Int], endsOn: Date?) async throws { throw CareServiceError.offline }
     func deleteMedication(id: String) async throws { throw CareServiceError.offline }
+    func requestMedicationReminder(id: String, at date: Date) async throws { throw CareServiceError.offline }
     func upsertHealthSnapshots(_ snapshots: [HealthSnapshot]) async throws { throw CareServiceError.offline }
+    func upsertHealthReadings(_ readings: [HealthReading]) async throws { throw CareServiceError.offline }
     func saveAppointment(_ appointment: Appointment) async throws { throw CareServiceError.offline }
     func deleteAppointment(id: String) async throws { throw CareServiceError.offline }
+    func logVisit(id: String, outcome: VisitOutcome, at date: Date) async throws { throw CareServiceError.offline }
     func triggerSOS(seniorID: String, at date: Date) async throws { throw CareServiceError.offline }
     func acknowledgeAlerts(seniorID: String) async throws { throw CareServiceError.offline }
     func addSenior(_ senior: AccountSenior) async throws { throw CareServiceError.offline }
     func updateSenior(_ senior: AccountSenior) async throws { throw CareServiceError.offline }
+    func updateMoodSchedule(seniorID: String, morning: String, evening: String) async throws { throw CareServiceError.offline }
+    func requestMoodPrompt(seniorID: String, at date: Date) async throws { throw CareServiceError.offline }
+    func clearMoodPrompt(seniorID: String) async throws { throw CareServiceError.offline }
     func removeSenior(id: String) async throws { throw CareServiceError.offline }
     func claimSenior(id: String) async throws { throw CareServiceError.offline }
     func saveEmergencyContact(_ contact: EmergencyContact) async throws { throw CareServiceError.offline }
     func deleteEmergencyContact(id: String) async throws { throw CareServiceError.offline }
     func sendMessage(_ body: String) async throws { throw CareServiceError.offline }
+    func sendVoiceMessage(_ data: Data) async throws { throw CareServiceError.offline }
+    func voiceAudio(path: String) async throws -> Data { throw CareServiceError.offline }
+    func markMessagesRead(_ ids: [String]) async throws { throw CareServiceError.offline }
     func updateProfile(displayName: String, city: String, phone: String) async throws { throw CareServiceError.offline }
 }
 
 final class AuthValidationTests: XCTestCase {
+    func testWatchIgnoresAnExpiredAccessToken() {
+        let expired = jwt(exp: Date().addingTimeInterval(-120))
+        let fresh = jwt(exp: Date().addingTimeInterval(3600))
+        XCTAssertFalse(WatchAuthHandoff.accessTokenIsUsable(expired))
+        XCTAssertTrue(WatchAuthHandoff.accessTokenIsUsable(fresh))
+        XCTAssertFalse(WatchAuthHandoff.accessTokenIsUsable("not-a-token"))
+    }
+
+    func testWatchHandoffIgnoresTheResendMarker() {
+        let handoff = WatchAuthHandoff(dictionary: [
+            "status": "ready",
+            "accessToken": "access",
+            "refreshToken": "refresh",
+            "sentAt": "again"
+        ])
+        XCTAssertEqual(handoff?.status, .ready)
+        XCTAssertEqual(handoff?.accessToken, "access")
+        XCTAssertEqual(handoff?.refreshToken, "refresh")
+    }
+
+    private func jwt(exp: Date) -> String {
+        let header = Data(#"{"alg":"none"}"#.utf8).base64EncodedString()
+        let payload = Data(#"{"exp":\#(Int(exp.timeIntervalSince1970))}"#.utf8).base64EncodedString()
+        return "\(header).\(payload)."
+    }
+
     func testEmailValidation() {
         XCTAssertTrue(EmailAddress.isValid("diwas@example.com"))
         XCTAssertTrue(EmailAddress.isValid("  maya.sharma+care@example.org "))

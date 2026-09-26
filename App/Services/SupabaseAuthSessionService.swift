@@ -24,6 +24,16 @@ import Supabase
         return state
     }
 
+    /// Installs a session received from the paired iPhone.
+    func adoptSession(accessToken: String, refreshToken: String) async throws {
+        do {
+            let session = try await client.auth.setSession(accessToken: accessToken, refreshToken: refreshToken)
+            state = .signedIn(Self.user(from: session.user))
+        } catch {
+            throw SupabaseErrorMapper.map(error)
+        }
+    }
+
     func signIn(email: String, password: String) async throws {
         let email = try Self.validatedEmail(email)
         do {

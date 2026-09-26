@@ -2,6 +2,8 @@ import CareCore
 import Foundation
 import Observation
 import Supabase
+import UIKit
+import UserNotifications
 
 /// Owns the signed-in session: authentication, the user's profile, their care account and the
 /// `AppState` built on it. `RootView` renders whatever `phase` says comes next.
@@ -34,11 +36,23 @@ import Supabase
     @ObservationIgnored private let client: SupabaseClient?
     @ObservationIgnored private let auth: SupabaseAuthSessionService?
     @ObservationIgnored private let healthProvider = HealthKitHealthDataProvider()
+    @ObservationIgnored private let watchRelay = WatchSessionRelay()
+    @ObservationIgnored private let reachability = CareReachability()
+    @ObservationIgnored private var healthClock: Task<Void, Never>?
+    private var pendingWatchHealth: WatchHealthReport?
+    private var pendingOpenMessages = false
     private var hasLoadedAccount = false
 
     init(client: SupabaseClient? = SupabaseConfig.sharedClient) {
         self.client = client
         self.auth = client.map(SupabaseAuthSessionService.init)
+        watchRelay.start(controller: self)
+        reachability.onReconnect = { [weak self] in
+            Task { @MainActor in await self?.refreshForForeground() }
+        }
+        PushRegistration.readyToUpload = { [weak self] in
+            await self?.uploadPushToken()
+        }
     }
 
     var signedInUser: AuthenticatedUser? {
@@ -101,6 +115,55 @@ import Supabase
         }
     }
 
+    /// The watch asked for Messages. Switch there, and bring this app forward when it is in the background.
+    func showMessagesFromWatch() {
+        pendingOpenMessages = true
+        applyPendingMessagesOpen()
+        guard UIApplication.shared.applicationState != .active else { return }
+        let activity = NSUserActivity(activityType: PhoneOpen.messagesActivity)
+        activity.title = "Messages"
+        activity.userInfo = ["screen": "messages"]
+        activity.requiredUserInfoKeys = ["screen"]
+        UIApplication.shared.requestSceneSessionActivation(nil, userActivity: activity, options: nil, errorHandler: nil)
+        Task {
+            try? await Task.sleep(for: .milliseconds(800))
+            guard UIApplication.shared.applicationState != .active else {
+                let center = UNUserNotificationCenter.current()
+                center.removeDeliveredNotifications(withIdentifiers: [Self.messagesOpenID])
+                center.removePendingNotificationRequests(withIdentifiers: [Self.messagesOpenID])
+                return
+            }
+            await Self.postMessagesOpenNotice()
+        }
+    }
+
+    private func applyPendingMessagesOpen() {
+        guard pendingOpenMessages, let appState else { return }
+        pendingOpenMessages = false
+        if appState.role == .senior {
+            appState.seniorTab = .messages
+        } else {
+            appState.familyTab = .messages
+        }
+    }
+
+    private static let messagesOpenID = "watch.open.messages"
+
+    private static func postMessagesOpenNotice() async {
+        let center = UNUserNotificationCenter.current()
+        let settings = await center.notificationSettings()
+        if settings.authorizationStatus == .notDetermined {
+            _ = try? await center.requestAuthorization(options: [.alert, .sound])
+        }
+        let content = UNMutableNotificationContent()
+        content.title = "Messages"
+        content.body = "Open CareCompanion to read them."
+        content.sound = .default
+        content.userInfo = ["kind": PhoneOpen.messagesKind]
+        let request = UNNotificationRequest(identifier: messagesOpenID, content: content, trigger: nil)
+        try? await center.add(request)
+    }
+
     func handleOpenURL(_ url: URL) async {
         guard let auth else { return }
         if await run({ try await auth.handleOpenURL(url) }) {
@@ -120,6 +183,9 @@ import Supabase
         await clearAccount()
         try? await auth.signOut()
         authState = .signedOut
+        watchRelay.publish()
+        CareWidgetPublisher.clear()
+        await MedicationReminderCenter.shared.sync(from: nil)
     }
 
     /// Permanently deletes the login, the profile and any care account nobody else belongs to.
@@ -129,6 +195,9 @@ import Supabase
         await clearAccount()
         try? await auth.signOut()
         authState = .signedOut
+        watchRelay.publish()
+        CareWidgetPublisher.clear()
+        await MedicationReminderCenter.shared.sync(from: nil)
         return true
     }
 
@@ -179,9 +248,13 @@ import Supabase
 
     /// Called when the app returns to the foreground.
     func refreshForForeground() async {
+        // Send the current login to the watch before this phone refreshes care data, so the watch
+        // never has to refresh the shared token itself.
+        watchRelay.publish()
         guard let appState else { return }
         await appState.refresh()
         await appState.syncHealthData()
+        await MedicationReminderCenter.shared.sync(from: appState)
     }
 
     // MARK: - Private
@@ -196,6 +269,37 @@ import Supabase
             loadError = error.localizedDescription
         }
         hasLoadedAccount = true
+        watchRelay.publish()
+    }
+
+    /// What the paired watch should do with this iPhone's account.
+    func publishWatch() {
+        watchRelay.publish()
+    }
+
+    func watchHandoff() async -> WatchAuthHandoff {
+        guard let client, signedInUser != nil else {
+            return WatchAuthHandoff(status: .signedOut)
+        }
+        guard hasLoadedAccount else {
+            return WatchAuthHandoff(status: .unavailable)
+        }
+        guard let appState else {
+            return WatchAuthHandoff(status: .needsLink)
+        }
+        guard appState.role == .senior, appState.linkedSenior != nil else {
+            return appState.role == .senior
+                ? WatchAuthHandoff(status: .needsLink)
+                : WatchAuthHandoff(status: .notSenior)
+        }
+        do {
+            let session = try await client.auth.session
+            return WatchAuthHandoff(status: .ready, accessToken: session.accessToken, refreshToken: session.refreshToken)
+        } catch {
+            // A failed refresh is not a sign-out. Telling the watch it signed out cleared a session
+            // that still worked and left the watch on "Couldn't load".
+            return WatchAuthHandoff(status: .unavailable)
+        }
     }
 
     private func loadRepository() async {
@@ -222,19 +326,50 @@ import Supabase
         let state = AppState(repository: loaded, healthProvider: healthProvider)
         repository = loaded
         appState = state
+        applyPendingMessagesOpen()
         do {
             try await loaded.startRealtime { [weak state] in
                 await state?.refresh()
+                await MedicationReminderCenter.shared.sync(from: state)
             }
             isRealtimeConnected = true
         } catch {
             isRealtimeConnected = false
         }
         await state.setupAutomaticHealthSync()
-        await state.syncHealthData()
+        if let pendingWatchHealth {
+            await state.ingestWatchHealth(pendingWatchHealth)
+        }
+        startHealthClock()
+        watchRelay.publish()
+        await MedicationReminderCenter.shared.sync(from: state)
+        await uploadPushToken()
+    }
+
+    func receiveWatchHealth(_ report: WatchHealthReport) async {
+        pendingWatchHealth = report
+        guard let appState, appState.linkedSenior != nil else { return }
+        await appState.ingestWatchHealth(report)
+    }
+
+    private func startHealthClock() {
+        healthClock?.cancel()
+        healthClock = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(60))
+                await self?.appState?.uploadScheduledHealth()
+            }
+        }
+    }
+
+    private func uploadPushToken() async {
+        guard let client, appState != nil else { return }
+        await PushRegistration.upload(using: client)
     }
 
     private func clearRepository() async {
+        healthClock?.cancel()
+        healthClock = nil
         await appState?.teardownAutomaticHealthSync()
         await repository?.stopRealtime()
         repository = nil

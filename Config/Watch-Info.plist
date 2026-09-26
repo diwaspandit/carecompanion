@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Hold the button to send a voice message to your family.</string>
+	<key>NSHealthShareUsageDescription</key>
+	<string>CareCompanion reads heart rate, steps, sleep and blood pressure on this Apple Watch and shares the totals with your family.</string>
+	<key>NSHealthUpdateUsageDescription</key>
+	<string>CareCompanion does not write to Apple Health.</string>
+	<key>NSUserActivityTypes</key>
+	<array>
+		<string>com.carecompanion.txst.messages</string>
+	</array>
+	<key>SupabaseHost</key>
+	<string>$(SUPABASE_HOST)</string>
+	<key>SupabaseAnonKey</key>
+	<string>$(SUPABASE_ANON_KEY)</string>
+</dict>
+</plist>

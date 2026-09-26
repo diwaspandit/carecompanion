@@ -8,6 +8,12 @@ public enum SeniorTab: String, Codable, Sendable {
     case messages
 }
 
+public enum PhoneOpen {
+    /// Handoff activity the watch starts so the paired iPhone can open Messages.
+    public static let messagesActivity = "com.carecompanion.txst.messages"
+    public static let messagesKind = "openPhone"
+}
+
 public enum FamilyTab: String, Codable, Sendable {
     case dashboard
     case health

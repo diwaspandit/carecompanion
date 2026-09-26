@@ -94,7 +94,7 @@ private struct FamilyHome: View {
                         .font(.system(.subheadline, design: .rounded).weight(.bold))
                         .foregroundStyle(CareTheme.heading)
                         .frame(width: 42, height: 42)
-                        .background(.white.opacity(0.8), in: Circle())
+                        .background(CareTheme.card.opacity(0.8), in: Circle())
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Settings")
@@ -143,7 +143,7 @@ private struct FamilyHome: View {
                     .multilineTextAlignment(.center)
                     .padding(14)
                     .frame(maxWidth: .infinity, minHeight: 150)
-                    .background(.white.opacity(0.6), in: RoundedRectangle(cornerRadius: 26, style: .continuous))
+                    .background(CareTheme.card.opacity(0.6), in: RoundedRectangle(cornerRadius: 26, style: .continuous))
                     .overlay(RoundedRectangle(cornerRadius: 26, style: .continuous)
                         .stroke(CareTheme.sage.opacity(0.45), style: StrokeStyle(lineWidth: 1.5, dash: [6, 5])))
                 }
@@ -173,7 +173,7 @@ private struct FamilyHome: View {
                             .foregroundStyle(CareTheme.sageDark)
                     }
                     .padding(14)
-                    .background(.white.opacity(0.85), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+                    .background(CareTheme.card.opacity(0.85), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
                 }
                 .buttonStyle(.plain)
                 .accessibilityIdentifier("family.insightTeaser")
@@ -237,7 +237,7 @@ private struct FamilyStatusCard: View {
             }
             .padding(14)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(.white.opacity(0.95), in: RoundedRectangle(cornerRadius: 26, style: .continuous))
+            .background(CareTheme.card.opacity(0.95), in: RoundedRectangle(cornerRadius: 26, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 26, style: .continuous).stroke(summary.hasEmergency ? CareTheme.coral : .clear, lineWidth: 2))
         }
         .buttonStyle(.plain)
@@ -285,34 +285,77 @@ private struct FamilyProfileTile: View {
         .fixedSize(horizontal: false, vertical: true)
         .padding(14)
         .frame(maxWidth: .infinity, minHeight: 150)
-        .background(.white, in: RoundedRectangle(cornerRadius: 26, style: .continuous))
+        .background(CareTheme.card, in: RoundedRectangle(cornerRadius: 26, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 26, style: .continuous).stroke(isSelected ? CareTheme.sage.opacity(0.6) : .clear, lineWidth: 2))
         .shadow(color: CareTheme.ink.opacity(0.035), radius: 12, y: 5)
     }
 }
 
-/// The selected senior's full daily summary and care insight.
+/// The selected senior's day on one screen. Medicines and the care insight open underneath.
 private struct FamilyCareDetailView: View {
     @Environment(AppState.self) private var state
     @Environment(\.dismiss) private var dismiss
+    @State private var showMedications = false
+    @State private var showMedicines = false
+    @State private var showInsight = false
+
+    private func medicineLine(_ summary: SeniorCareSummary) -> String {
+        summary.medicationsTotal == 0 ? "None added" : "\(summary.medicationsTaken) of \(summary.medicationsTotal) taken"
+    }
+
+    private var insightLine: String {
+        guard let summary = state.careInsight?.summary, !summary.isEmpty else { return "A note on today's care" }
+        return summary
+    }
 
     var body: some View {
         let indexed = Array(state.seniorSummaries.enumerated())
         let index = indexed.first { $0.element.id == state.selectedSeniorID }?.offset ?? 0
         ScrollView {
-            VStack(spacing: 20) {
+            VStack(spacing: 12) {
                 if let summary = state.selectedSummary {
                     SeniorSummaryCard(summary: summary, color: CareTheme.seniorColor(at: index), isSelected: true)
-                    CareInsightCard(onViewTimeline: { dismiss() })
+                    CareStatsGrid(summary: summary)
+                    CareFold(title: "Medicines", detail: medicineLine(summary), isOpen: $showMedicines) {
+                        FamilyMedicinesSection(firstName: summary.firstName, showMedications: $showMedications)
+                    }
+                    CareFold(title: "Care insight", detail: insightLine, isOpen: $showInsight) {
+                        CareInsightCard(plain: true, onViewTimeline: { dismiss() })
+                    }
                 }
             }
-            .padding(20)
+            .padding(16)
         }
+        .scrollBounceBehavior(.basedOnSize)
+        .task(id: state.selectedSummary) { await state.loadCareInsight() }
+        .sheet(isPresented: $showMedications) { MedicationManagementView().environment(state) }
         .refreshable { await state.refresh() }
         .background(CareTheme.background.ignoresSafeArea())
         .navigationTitle(state.selectedSummary.map { "\($0.firstName)'s care" } ?? "Care")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.visible, for: .navigationBar)
+    }
+}
+
+/// Medicines for the selected senior. Any family member can add or edit one; the list is the same account-wide record.
+private struct FamilyMedicinesSection: View {
+    let firstName: String
+    @Binding var showMedications: Bool
+    var identifier = "family.addMedication"
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            MedicineListView(title: "Today", large: false)
+            Button { showMedications = true } label: {
+                Label("Add a medicine for \(firstName)", systemImage: "plus")
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundStyle(CareTheme.sageDark)
+                    .frame(maxWidth: .infinity, minHeight: 44)
+                    .background(CareTheme.sagePale, in: RoundedRectangle(cornerRadius: 14))
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier(identifier)
+        }
     }
 }
 
@@ -405,17 +448,30 @@ private struct AddSeniorSheet: View {
 
 private struct CareInsightCard: View {
     @Environment(AppState.self) private var state
+    var plain = false
     var onViewTimeline: (() -> Void)? = nil
 
     var body: some View {
-        LovableCard {
-            HStack(alignment: .top, spacing: 14) {
+        Group {
+            if plain {
+                insightBody
+            } else {
+                LovableCard { insightBody }
+            }
+        }
+        .accessibilityIdentifier("insight.card")
+        .task(id: state.selectedSummary) {
+            await state.loadCareInsight()
+        }
+    }
+
+    private var insightBody: some View {
+        HStack(alignment: .top, spacing: 14) {
                 Image(systemName: "sparkles")
                     .font(.system(size: 20, weight: .bold))
                     .foregroundStyle(CareTheme.gold)
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 10) {
-                    Text("Care insight").font(.system(size: 15, weight: .black))
                     if let insight = state.careInsight {
                         Text(insight.summary)
                             .font(.system(size: 16))
@@ -442,11 +498,6 @@ private struct CareInsightCard: View {
                     }
                     .accessibilityIdentifier("insight.timeline")
                 }
-            }
-        }
-        .accessibilityIdentifier("insight.card")
-        .task(id: state.selectedSummary) {
-            await state.loadCareInsight()
         }
     }
 }
@@ -479,77 +530,198 @@ private struct SeniorSummaryCard: View {
         if summary.needsAttention { return ("Needs attention", CareTheme.goldDark, CareTheme.goldPale) }
         return ("All good", CareTheme.sageDark, CareTheme.sagePale)
     }
+    var body: some View {
+        LovableCard(padding: 14) {
+            VStack(spacing: 8) {
+                HStack(spacing: 10) {
+                    SeniorAvatar(name: summary.senior.name, initials: summary.initials, color: color, size: 44)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(summary.senior.name)
+                            .font(.system(size: 18, weight: .black))
+                            .foregroundStyle(CareTheme.ink)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.7)
+                        Text(subtitle)
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(CareTheme.secondaryText)
+                            .lineLimit(1)
+                        Text(status.text)
+                            .font(.system(size: 12, weight: .black))
+                            .foregroundStyle(status.color)
+                            .lineLimit(1)
+                    }
+                    Spacer(minLength: 6)
+                    if let phone = summary.phone {
+                        if let url = PhoneLinks.call(phone) {
+                            careLink(url, "phone.fill", "Call \(summary.firstName)", filled: false)
+                        }
+                        if let url = PhoneLinks.video(phone) {
+                            careLink(url, "video.fill", "FaceTime \(summary.firstName)", filled: true)
+                        }
+                    }
+                }
+                HStack(spacing: 8) {
+                    Image(systemName: "clock")
+                    Text(checkInText)
+                        .font(.system(size: 14, weight: .black))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                        .accessibilityIdentifier(isSelected ? "family.checkedIn" : "")
+                    Spacer(minLength: 4)
+                    Text(moodEmoji)
+                        .font(.system(size: 20))
+                        .accessibilityLabel(summary.mood?.rawValue ?? "No mood recorded")
+                }
+                .foregroundStyle(CareTheme.ink)
+                .padding(.horizontal, 12)
+                .frame(minHeight: 36)
+                .background(CareTheme.grayPill, in: Capsule())
+                if summary.watchLastSample != nil {
+                    HStack(spacing: 6) {
+                        Image(systemName: summary.watchCollecting ? "applewatch.radiowaves.left.and.right" : "applewatch.slash")
+                        Text(summary.watchCollecting ? "Watch on" : "Watch off")
+                            .lineLimit(1)
+                        Spacer(minLength: 4)
+                        if summary.wornMinutesToday > 0 {
+                            Text(SeniorCareSummary.duration(minutes: summary.wornMinutesToday))
+                                .lineLimit(1)
+                        }
+                    }
+                    .font(.system(size: 13, weight: .black))
+                    .foregroundStyle(summary.watchCollecting ? CareTheme.sageDark : CareTheme.coralDark)
+                    .padding(.horizontal, 12)
+                    .frame(minHeight: 32)
+                    .background(summary.watchCollecting ? CareTheme.sagePale : CareTheme.coralPale, in: Capsule())
+                    .accessibilityIdentifier(isSelected ? "family.watch" : "")
+                }
+            }
+        }
+    }
+
+    private func careLink(_ url: URL, _ icon: String, _ label: String, filled: Bool) -> some View {
+        Button { openURL(url) } label: {
+            Image(systemName: icon)
+                .font(.system(size: 14, weight: .black))
+                .foregroundStyle(filled ? Color.white : CareTheme.sageDark)
+                .frame(width: 36, height: 36)
+                .background(filled ? CareTheme.sage : CareTheme.sagePale, in: Circle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
+    }
+}
+
+/// The day's numbers, small enough to sit under the name without scrolling.
+private struct CareStatsGrid: View {
+    let summary: SeniorCareSummary
+
     private func stat(_ value: Int?, _ format: (Int) -> String) -> String {
         guard let value, value > 0 else { return "—" }
         return format(value)
     }
+
     private var healthNotice: String {
         guard let latest = summary.latestHealth else {
             return summary.linkedMember == nil
-                ? "\(summary.firstName) hasn't joined on their iPhone yet, so Apple Health can't sync."
-                : "Waiting for \(summary.firstName) to share Apple Health."
+                ? "\(summary.firstName) hasn't joined on their iPhone yet."
+                : "Waiting for Apple Health."
         }
         let day = latest.date.formatted(Date.FormatStyle(date: .abbreviated, time: .omitted, timeZone: .gmt))
-        return latest.source == "healthkit" ? "From Apple Health · \(day)" : "Source: \(latest.source) · \(day)"
+        return latest.source == "healthkit" ? "Apple Watch · \(day)" : "\(latest.source) · \(day)"
     }
 
     var body: some View {
-        LovableCard {
-            VStack(spacing: 16) {
-                HStack(spacing: 14) {
-                    SeniorAvatar(name: summary.senior.name, initials: summary.initials, color: color, size: 52)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(summary.senior.name).font(.system(size: 20, weight: .black)).foregroundStyle(CareTheme.ink)
-                            .lineLimit(2)
-                        Text(subtitle).font(.system(size: 13)).foregroundStyle(CareTheme.secondaryText)
-                    }
+        LovableCard(padding: 12) {
+            VStack(alignment: .leading, spacing: 8) {
+                LazyVGrid(columns: [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)], spacing: 8) {
+                    CareStat(title: "Medicines",
+                             value: summary.medicationsTotal == 0 ? "None" : "\(summary.medicationsTaken)/\(summary.medicationsTotal)",
+                             icon: "pills", color: CareTheme.gold, identifier: "family.medications")
+                    CareStat(title: "Mood", value: summary.mood?.rawValue ?? "—", icon: "face.smiling", color: CareTheme.sage)
+                    CareStat(title: "Steps", value: stat(summary.liveSteps) { $0.formatted() },
+                             icon: "shoeprints.fill", color: CareTheme.blue, identifier: "family.steps")
+                    CareStat(title: "Sleep", value: stat(summary.liveSleepMinutes) { SeniorCareSummary.duration(minutes: $0) },
+                             icon: "moon", color: CareTheme.blue, identifier: "family.sleep")
+                    CareStat(title: "Heart rate", value: summary.latestHeartRate.map { "\($0) bpm" } ?? "—",
+                             icon: "heart", color: CareTheme.coral, identifier: "family.heartRate")
+                    CareStat(title: "Blood pressure", value: summary.latestBloodPressureText ?? "—",
+                             icon: "waveform.path.ecg", color: CareTheme.coral, identifier: "family.bloodPressure")
+                }
+                Text(healthNotice)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(CareTheme.mutedText)
+                    .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
-                    .layoutPriority(1)
-                    Spacer()
-                    PlainPill(text: status.text, icon: "circle.fill", color: status.color, fill: status.fill)
-                        .fixedSize()
-                }
-                HStack {
-                    Image(systemName: "clock")
-                    Text(checkInText)
-                        .font(.system(size: 15, weight: .black))
-                        .accessibilityIdentifier(isSelected ? "family.checkedIn" : "")
-                    Spacer()
-                    Text(moodEmoji).font(.system(size: 24)).accessibilityLabel(summary.mood?.rawValue ?? "No mood recorded")
-                }
+            }
+        }
+    }
+}
+
+private struct CareStat: View {
+    let title: String
+    let value: String
+    let icon: String
+    let color: Color
+    var identifier: String? = nil
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Label(title, systemImage: icon)
+                .font(.system(size: 11, weight: .bold))
+                .foregroundStyle(CareTheme.secondaryText)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+            Text(value)
+                .font(.system(size: 15, weight: .black))
                 .foregroundStyle(CareTheme.ink)
-                .padding(.horizontal, 16)
-                .frame(minHeight: 54)
-                .background(CareTheme.grayPill, in: Capsule())
-                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
-                    SmallMetric(title: "Medications",
-                                value: summary.medicationsTotal == 0 ? "None added" : "\(summary.medicationsTaken) of \(summary.medicationsTotal) taken",
-                                icon: "pills", color: CareTheme.gold, identifier: isSelected ? "family.medications" : nil)
-                    SmallMetric(title: "Mood", value: summary.mood?.rawValue ?? "Not recorded", icon: "face.smiling", color: CareTheme.sage)
-                    SmallMetric(title: "Steps", value: stat(summary.latestHealth?.steps) { $0.formatted() },
-                                icon: "shoeprints.fill", color: CareTheme.blue, identifier: isSelected ? "family.steps" : nil)
-                    SmallMetric(title: "Sleep", value: stat(summary.latestHealth?.sleepMinutes) { SeniorCareSummary.duration(minutes: $0) },
-                                icon: "moon", color: CareTheme.blue, identifier: isSelected ? "family.sleep" : nil)
-                    SmallMetric(title: "Resting heart rate", value: stat(summary.latestHealth?.restingHeartRate) { "\($0) bpm" },
-                                icon: "heart", color: CareTheme.coral, identifier: isSelected ? "family.heartRate" : nil)
-                }
-                HStack {
-                    Text(healthNotice)
-                        .font(.system(size: 12))
-                        .foregroundStyle(CareTheme.mutedText)
-                    Spacer()
-                    if let phone = summary.phone, let url = PhoneLinks.call(phone) {
-                        Button { openURL(url) } label: {
-                            Label("Call", systemImage: "phone.fill")
-                                .font(.system(size: 14, weight: .black))
-                                .foregroundStyle(.white)
-                                .padding(.horizontal, 14)
-                                .padding(.vertical, 8)
-                                .background(CareTheme.sage, in: Capsule())
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
+                .accessibilityIdentifier(identifier ?? "metric.\(title.lowercased())")
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
+        .background(CareTheme.grayPill, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .tint(color)
+        .accessibilityElement(children: .combine)
+    }
+}
+
+private struct CareFold<Content: View>: View {
+    let title: String
+    let detail: String
+    @Binding var isOpen: Bool
+    @ViewBuilder var content: () -> Content
+
+    var body: some View {
+        LovableCard(padding: 14) {
+            VStack(alignment: .leading, spacing: 12) {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) { isOpen.toggle() }
+                } label: {
+                    HStack(spacing: 8) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(title)
+                                .font(.system(size: 16, weight: .black))
+                                .foregroundStyle(CareTheme.ink)
+                            Text(detail)
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundStyle(CareTheme.secondaryText)
+                                .lineLimit(1)
                         }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Call \(summary.firstName)")
+                        Spacer(minLength: 8)
+                        Image(systemName: isOpen ? "chevron.up" : "chevron.down")
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundStyle(CareTheme.sageDark)
                     }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(title)
+                .accessibilityValue(detail)
+                .accessibilityHint(isOpen ? "Collapse" : "Expand")
+                if isOpen {
+                    content()
                 }
             }
         }
@@ -829,10 +1001,12 @@ private struct AlertsView: View {
 
     private var care: SeniorCareSummary? { state.selectedSummary }
     private var name: String { care?.firstName ?? "Your senior" }
-    private var callURL: URL? {
-        if let phone = care?.phone, let url = PhoneLinks.call(phone) { return url }
-        return care?.contacts.compactMap { PhoneLinks.call($0.phone) }.first
+    private var callPhone: String? {
+        if let phone = care?.phone, PhoneLinks.call(phone) != nil { return phone }
+        return care?.contacts.first { PhoneLinks.call($0.phone) != nil }?.phone
     }
+    private var callURL: URL? { callPhone.flatMap(PhoneLinks.call) }
+    private var videoURL: URL? { callPhone.flatMap(PhoneLinks.video) }
     private func key(_ kind: String) -> String { "\(state.selectedSeniorID)-\(kind)" }
 
     private var showsEmergency: Bool { care?.hasEmergency == true }
@@ -853,7 +1027,7 @@ private struct AlertsView: View {
                 AlertRow(kind: "EMERGENCY", when: care?.openAlertDate.map { timeText($0, in: state.selectedTimeZone) } ?? "Now",
                          title: "SOS alert from \(name)", detail: "\(name) asked for help. Call them, then mark the alert as handled.",
                          color: CareTheme.coral, fill: CareTheme.coralPale, icon: "exclamationmark.triangle",
-                         dismissTitle: "Handled", callURL: callURL, openURL: openURL,
+                         dismissTitle: "Handled", callURL: callURL, videoURL: videoURL, openURL: openURL,
                          onMessage: { state.familyTab = .messages },
                          onDismiss: { Task { await state.acknowledgeEmergency() } })
                     .accessibilityIdentifier("alerts.sos")
@@ -862,7 +1036,7 @@ private struct AlertsView: View {
                 AlertRow(kind: "MEDICATION", when: "Today",
                          title: missedMedications.count == 1 ? "\(name) hasn't taken \(first.name) yet" : "\(name) hasn't taken \(missedMedications.count) medicines yet",
                          detail: missedMedications.map { "\($0.name) (\($0.scheduledTime))" }.joined(separator: ", "),
-                         color: CareTheme.gold, fill: .white, icon: "pills", dismissTitle: "Dismiss", callURL: callURL, openURL: openURL,
+                         color: CareTheme.gold, fill: CareTheme.goldPale, icon: "pills", dismissTitle: "Dismiss", callURL: callURL, videoURL: videoURL, openURL: openURL,
                          onMessage: { state.familyTab = .messages },
                          onDismiss: { dismissed.insert(key("medication")) })
             }
@@ -870,14 +1044,14 @@ private struct AlertsView: View {
                 AlertRow(kind: "ACTIVITY", when: "Latest synced day", title: "Fewer steps than usual",
                          detail: "\(lowActivity.steps.formatted()) steps vs. a \(lowActivity.baseline.formatted())-step average on earlier days.",
                          color: CareTheme.blue, fill: CareTheme.bluePale, icon: "figure.walk", dismissTitle: "Dismiss",
-                         callURL: callURL, openURL: openURL,
+                         callURL: callURL, videoURL: videoURL, openURL: openURL,
                          onMessage: { state.familyTab = .messages },
                          onDismiss: { dismissed.insert(key("health")) })
             }
             if showsCheckIn {
                 AlertRow(kind: "CHECK-IN", when: "Today", title: "No check-in yet today", detail: "\(name) hasn't tapped \"I'm okay\" today.",
                          color: CareTheme.gold, fill: CareTheme.grayPill.opacity(0.45), icon: "clock", dismissTitle: "Dismiss",
-                         callURL: callURL, openURL: openURL,
+                         callURL: callURL, videoURL: videoURL, openURL: openURL,
                          onMessage: { state.familyTab = .messages },
                          onDismiss: { dismissed.insert(key("checkin")) })
             }
@@ -907,6 +1081,7 @@ private struct AlertRow: View {
     let icon: String
     let dismissTitle: String
     let callURL: URL?
+    let videoURL: URL?
     let openURL: OpenURLAction
     let onMessage: () -> Void
     let onDismiss: () -> Void
@@ -920,14 +1095,20 @@ private struct AlertRow: View {
                     Text(title).font(.system(size: 17, weight: .black)).foregroundStyle(CareTheme.ink)
                     Text(detail).font(.system(size: 15)).foregroundStyle(CareTheme.mutedText)
                     HStack(spacing: 8) {
+                        if let videoURL {
+                            Button { openURL(videoURL) } label: {
+                                PlainPill(text: "FaceTime", icon: "video.fill", color: .white, fill: CareTheme.sage)
+                            }
+                            .buttonStyle(.plain)
+                        }
                         if let callURL {
                             Button { openURL(callURL) } label: {
-                                PlainPill(text: "Call", icon: "phone", color: .white, fill: CareTheme.sage)
+                                PlainPill(text: "Call", icon: "phone", color: CareTheme.sageDark, fill: CareTheme.sagePale)
                             }
                             .buttonStyle(.plain)
                         }
                         Button(action: onMessage) {
-                            PlainPill(text: "Message", icon: "bubble.right", color: CareTheme.ink, fill: .white)
+                            PlainPill(text: "Message", icon: "bubble.right", color: CareTheme.ink, fill: CareTheme.card)
                         }
                         .buttonStyle(.plain)
                         Spacer(minLength: 0)
@@ -936,7 +1117,7 @@ private struct AlertRow: View {
                                 .font(.system(size: 15, weight: .bold))
                                 .foregroundStyle(CareTheme.mutedText)
                                 .frame(width: 40, height: 40)
-                                .background(.white.opacity(0.7), in: Circle())
+                                .background(CareTheme.card.opacity(0.7), in: Circle())
                         }
                         .buttonStyle(.plain)
                         .accessibilityLabel(dismissTitle)
@@ -1054,22 +1235,81 @@ private struct AppointmentPrepCard: View {
 
 // MARK: - Profile
 
+/// Family sets the two daily mood checks, and can ask the senior right now.
+private struct MoodScheduleCard: View {
+    @Environment(AppState.self) private var state
+    @State private var morning = MedicationTime.date(from: MoodPromptSchedule.morningDefault)
+    @State private var evening = MedicationTime.date(from: MoodPromptSchedule.eveningDefault)
+    @State private var isSaving = false
+    @State private var isAsking = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            SectionTitle(text: "Mood check")
+            LovableCard {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Ask twice a day. The senior gets a prompt on the iPhone and the Apple Watch, and it stays until they choose.")
+                        .font(.system(size: 14))
+                        .foregroundStyle(CareTheme.secondaryText)
+                    DatePicker("Morning", selection: $morning, displayedComponents: .hourAndMinute)
+                    DatePicker("Evening", selection: $evening, displayedComponents: .hourAndMinute)
+                    Button(isSaving ? "Saving…" : "Save times") {
+                        Task {
+                            isSaving = true
+                            _ = await state.saveMoodSchedule(morning: MedicationTime.string(from: morning),
+                                                             evening: MedicationTime.string(from: evening))
+                            isSaving = false
+                        }
+                    }
+                    .font(.system(size: 16, weight: .bold))
+                    .disabled(isSaving)
+                    .accessibilityIdentifier("mood.schedule.save")
+                    Button(isAsking ? "Asking…" : "Ask for mood now") {
+                        Task {
+                            isAsking = true
+                            _ = await state.askForMoodNow()
+                            isAsking = false
+                        }
+                    }
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundStyle(CareTheme.sageDark)
+                    .disabled(isAsking)
+                    .accessibilityIdentifier("mood.schedule.now")
+                }
+            }
+        }
+        .onAppear(perform: load)
+        .onChange(of: state.selectedSeniorID) { _, _ in load() }
+    }
+
+    private func load() {
+        guard let senior = state.selectedSenior else { return }
+        morning = MedicationTime.date(from: senior.moodMorning)
+        evening = MedicationTime.date(from: senior.moodEvening)
+    }
+}
+
 private struct FamilyProfileView: View {
     @Environment(AppState.self) private var state
     @Binding var showSettings: Bool
     @State private var showEditSenior = false
+    @State private var showEditSelf = false
     @State private var showMedications = false
     @State private var editingContact: EmergencyContact?
     @State private var addingContact = false
     @State private var confirmRemove = false
-
-    private var care: SeniorCareSummary? { state.selectedSummary }
+    @State private var openSeniorID: String?
+    @State private var showFamily = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            HStack(alignment: .top) {
-                ScreenTitle(title: "Profile", subtitle: "Care plan and family")
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .center) {
+                Text("Profile")
+                    .font(.system(size: 28, weight: .black))
+                    .foregroundStyle(CareTheme.ink)
+                    .accessibilityAddTraits(.isHeader)
                     .accessibilityIdentifier("profile.title")
+                Spacer()
                 Button { showSettings = true } label: {
                     Image(systemName: "gearshape")
                         .font(.system(size: 22, weight: .semibold))
@@ -1079,121 +1319,330 @@ private struct FamilyProfileView: View {
                 .accessibilityLabel("Settings")
             }
 
-            if let care {
-                LovableCard {
-                    VStack(alignment: .leading, spacing: 14) {
-                        HStack(spacing: 14) {
-                            SeniorAvatar(name: care.senior.name, initials: care.initials, color: CareTheme.gold, size: 56)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(care.senior.name).font(.system(size: 20, weight: .black))
-                                Text([care.senior.city, "\(care.senior.age) years"].filter { !$0.isEmpty }.joined(separator: " · "))
-                                    .font(.system(size: 14)).foregroundStyle(CareTheme.secondaryText)
-                                Text(TimeZoneListView.label(for: care.senior.timeZoneIdentifier))
-                                    .font(.system(size: 13)).foregroundStyle(CareTheme.secondaryText)
-                            }
-                            Spacer()
-                        }
-                        Text(care.linkedMember == nil
-                             ? "\(care.firstName) isn't using the app on their own iPhone yet. Share the invite code so they can check in and share Apple Health."
-                             : "\(care.firstName) uses CareCompanion on their iPhone.")
-                            .font(.system(size: 13))
-                            .foregroundStyle(CareTheme.mutedText)
-                        Button { showEditSenior = true } label: {
-                            Label("Edit details", systemImage: "pencil")
-                                .font(.system(size: 15, weight: .bold))
-                                .foregroundStyle(CareTheme.sageDark)
-                                .frame(maxWidth: .infinity, minHeight: 44)
-                                .background(CareTheme.sagePale, in: RoundedRectangle(cornerRadius: 14))
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityIdentifier("profile.edit")
+            ownProfileCard
+
+            if state.seniorSummaries.isEmpty {
+                Text("Add someone you care for from Home.")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(CareTheme.secondaryText)
+            } else {
+                ForEach(state.seniorSummaries) { summary in
+                    CareFold(title: summary.senior.name,
+                             detail: seniorLine(summary),
+                             isOpen: openBinding(summary.id)) {
+                        SeniorProfileDetails(summary: summary,
+                                             showEditSenior: $showEditSenior, showMedications: $showMedications,
+                                             editingContact: $editingContact, addingContact: $addingContact,
+                                             confirmRemove: $confirmRemove)
                     }
                 }
             }
 
-            VStack(alignment: .leading, spacing: 12) {
-                HStack {
-                    SectionTitle(text: "Emergency contacts")
-                    Spacer()
-                    Button { addingContact = true } label: { Label("Add", systemImage: "plus").font(.system(size: 15, weight: .bold)) }
-                        .accessibilityIdentifier("profile.addContact")
-                }
-                LovableCard {
-                    VStack(alignment: .leading, spacing: 4) {
-                        if care?.contacts.isEmpty ?? true {
-                            Text("Add people to call in an emergency. They appear on \(care?.firstName ?? "the senior")'s SOS screen.")
-                                .font(.system(size: 15)).foregroundStyle(CareTheme.secondaryText)
-                        }
-                        ForEach(care?.contacts ?? []) { contact in
-                            Button { editingContact = contact } label: {
-                                ContactRow(name: contact.name, detail: contact.relation.isEmpty ? contact.phone : "\(contact.relation) · \(contact.phone)",
-                                           phone: contact.phone)
-                            }
-                            .buttonStyle(.plain)
-                        }
+            CareFold(title: "Family", detail: familyLine, isOpen: $showFamily) {
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(state.snapshot.members) { member in
+                        let isMe = member.profileID == state.currentProfileID
+                        ContactRow(name: (member.name.isEmpty ? "Family member" : member.name) + (isMe ? " (you)" : ""),
+                                   detail: [member.role == .senior ? "Senior" : "Family", member.city].filter { !$0.isEmpty }.joined(separator: " · "),
+                                   phone: isMe ? "" : member.phone)
                     }
-                }
-            }
-
-            VStack(alignment: .leading, spacing: 12) {
-                HStack {
-                    SectionTitle(text: "Medicines")
-                    Spacer()
-                    Button { showMedications = true } label: { Label("Edit", systemImage: "pencil").font(.system(size: 15, weight: .bold)) }
-                        .accessibilityIdentifier("profile.manageMedications")
-                }
-                LovableCard { MedicineListView(title: "Today", large: false) }
-            }
-
-            VStack(alignment: .leading, spacing: 12) {
-                SectionTitle(text: "Family members")
-                LovableCard {
-                    VStack(alignment: .leading, spacing: 4) {
-                        ForEach(state.snapshot.members) { member in
-                            let isMe = member.profileID == state.currentProfileID
-                            ContactRow(name: (member.name.isEmpty ? "Family member" : member.name) + (isMe ? " (you)" : ""),
-                                       detail: [member.role == .senior ? "Senior" : "Family", member.city].filter { !$0.isEmpty }.joined(separator: " · "),
-                                       phone: isMe ? "" : member.phone)
-                        }
-                    }
-                }
-                InviteCodeCard()
-            }
-
-            if let care {
-                VStack(alignment: .leading, spacing: 12) {
-                    SectionTitle(text: "Health baseline")
-                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
-                        SmallMetric(title: "Resting heart rate", value: care.restingHeartRateRange.map { $0.lowerBound == $0.upperBound ? "\($0.lowerBound) bpm" : "\($0.lowerBound)–\($0.upperBound) bpm" } ?? "—",
-                                    icon: "heart", color: CareTheme.coral)
-                        SmallMetric(title: "Average sleep", value: care.averageSleepMinutes.map { SeniorCareSummary.duration(minutes: $0) } ?? "—",
-                                    icon: "moon", color: CareTheme.blue)
-                        SmallMetric(title: "Daily steps", value: care.averageSteps.map { $0.formatted() } ?? "—",
-                                    icon: "shoeprints.fill", color: CareTheme.blue)
-                        SmallMetric(title: "Medicines this week", value: care.adherence.map { $0.expected == 0 ? "—" : "\(Int(($0.fraction * 100).rounded()))%" } ?? "—",
-                                    icon: "pills", color: CareTheme.gold)
-                    }
-                }
-
-                Button(role: .destructive) { confirmRemove = true } label: {
-                    Text("Remove \(care.firstName) from the family")
-                        .font(.system(size: 16, weight: .bold))
-                        .foregroundStyle(CareTheme.coralDark)
-                        .frame(maxWidth: .infinity, minHeight: 50)
-                }
-                .buttonStyle(.plain)
-                .confirmationDialog("Remove \(care.senior.name)?", isPresented: $confirmRemove, titleVisibility: .visible) {
-                    Button("Remove", role: .destructive) {
-                        Task { await state.removeSenior(id: care.id) }
-                    }
-                } message: {
-                    Text("Their check-ins, medicines and visits stop showing for everyone in the family.")
+                    InviteCodeCard()
                 }
             }
         }
+        .sheet(isPresented: $showEditSelf) { OwnProfileEditor().environment(state) }
         .sheet(isPresented: $showEditSenior) { EditSeniorProfileView().environment(state) }
         .sheet(isPresented: $showMedications) { MedicationManagementView().environment(state) }
         .sheet(isPresented: $addingContact) { EmergencyContactFormView(contact: nil).environment(state) }
         .sheet(item: $editingContact) { EmergencyContactFormView(contact: $0).environment(state) }
+    }
+
+    private var ownProfileCard: some View {
+        let me = state.currentMember
+        let name = me?.name.isEmpty == false ? me!.name : "Your profile"
+        let detail = [me?.city ?? "", me?.phone ?? ""].filter { !$0.isEmpty }.joined(separator: " · ")
+        return LovableCard(padding: 14) {
+            HStack(spacing: 12) {
+                Text(initials(name))
+                    .font(.system(size: 16, weight: .black))
+                    .foregroundStyle(CareTheme.ink)
+                    .frame(width: 44, height: 44)
+                    .background(CareTheme.sagePale, in: Circle())
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(name)
+                        .font(.system(size: 18, weight: .black))
+                        .foregroundStyle(CareTheme.ink)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                    Text(me?.role == .senior ? "Senior" : "Family member")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundStyle(CareTheme.sageDark)
+                    Text(detail.isEmpty ? "Add your city and phone" : detail)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(CareTheme.secondaryText)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                }
+                Spacer(minLength: 8)
+                Button { showEditSelf = true } label: {
+                    Image(systemName: "pencil")
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundStyle(CareTheme.sageDark)
+                        .frame(width: 36, height: 36)
+                        .background(CareTheme.sagePale, in: Circle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Edit your profile")
+                .accessibilityIdentifier("profile.editSelf")
+            }
+        }
+    }
+
+    private var familyLine: String {
+        let count = state.snapshot.members.count
+        return count == 1 ? "1 person" : "\(count) people"
+    }
+
+    private func seniorLine(_ summary: SeniorCareSummary) -> String {
+        let age = summary.senior.age > 0 ? "\(summary.senior.age) years" : "Age not set"
+        return [age, summary.senior.city].filter { !$0.isEmpty }.joined(separator: " · ")
+    }
+
+    private func openBinding(_ id: String) -> Binding<Bool> {
+        Binding(
+            get: { openSeniorID == id },
+            set: { isOpen in
+                openSeniorID = isOpen ? id : nil
+                if isOpen { state.selectSenior(id: id) }
+            }
+        )
+    }
+
+    private func initials(_ name: String) -> String {
+        let parts = name.split(separator: " ").prefix(2)
+        let letters = parts.compactMap { $0.first }.map { String($0).uppercased() }
+        return letters.isEmpty ? "·" : letters.joined()
+    }
+}
+
+/// Name, city and phone for the signed-in family member.
+private struct OwnProfileEditor: View {
+    @Environment(AppState.self) private var state
+    @Environment(\.dismiss) private var dismiss
+    @State private var name = ""
+    @State private var city = ""
+    @State private var phone = ""
+    @State private var isSaving = false
+
+    var body: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 14) {
+                TextField("Your name", text: $name)
+                    .textContentType(.name)
+                    .careField()
+                TextField("City", text: $city)
+                    .textContentType(.addressCity)
+                    .careField()
+                TextField("Phone number", text: $phone)
+                    .textContentType(.telephoneNumber)
+                    .keyboardType(.phonePad)
+                    .careField()
+                Spacer()
+            }
+            .padding(20)
+            .background(CareTheme.background)
+            .navigationTitle("Your profile")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(isSaving ? "Saving…" : "Save") {
+                        Task {
+                            isSaving = true
+                            let saved = await state.updateProfile(displayName: name, city: city, phone: phone)
+                            isSaving = false
+                            if saved { dismiss() }
+                        }
+                    }
+                    .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty || isSaving)
+                }
+            }
+            .onAppear {
+                name = state.currentMember?.name ?? ""
+                city = state.currentMember?.city ?? ""
+                phone = state.currentMember?.phone ?? ""
+            }
+        }
+    }
+}
+
+/// A senior's care plan, opened from the family profile. Editing uses that senior's record.
+private struct SeniorProfileDetails: View {
+    @Environment(AppState.self) private var state
+    let summary: SeniorCareSummary
+    @Binding var showEditSenior: Bool
+    @Binding var showMedications: Bool
+    @Binding var editingContact: EmergencyContact?
+    @Binding var addingContact: Bool
+    @Binding var confirmRemove: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(TimeZoneListView.label(for: summary.senior.timeZoneIdentifier))
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(CareTheme.secondaryText)
+            Text(summary.linkedMember == nil
+                 ? "\(summary.firstName) hasn't joined on their own iPhone yet."
+                 : "\(summary.firstName) uses CareCompanion on their iPhone.")
+                .font(.system(size: 13))
+                .foregroundStyle(CareTheme.mutedText)
+            Button {
+                state.selectSenior(id: summary.id)
+                showEditSenior = true
+            } label: {
+                Label("Edit \(summary.firstName)'s details", systemImage: "pencil")
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundStyle(CareTheme.sageDark)
+                    .frame(maxWidth: .infinity, minHeight: 44)
+                    .background(CareTheme.sagePale, in: RoundedRectangle(cornerRadius: 14))
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("profile.edit")
+
+            MoodScheduleCard()
+
+            HStack {
+                Text("Emergency contacts")
+                    .font(.system(size: 15, weight: .black))
+                    .foregroundStyle(CareTheme.ink)
+                Spacer()
+                Button {
+                    state.selectSenior(id: summary.id)
+                    addingContact = true
+                } label: {
+                    Label("Add", systemImage: "plus").font(.system(size: 15, weight: .bold))
+                }
+                .accessibilityIdentifier("profile.addContact")
+            }
+            if summary.contacts.isEmpty {
+                Text("People to call from \(summary.firstName)'s SOS screen.")
+                    .font(.system(size: 14))
+                    .foregroundStyle(CareTheme.secondaryText)
+            }
+            ForEach(summary.contacts) { contact in
+                Button { editingContact = contact } label: {
+                    ContactRow(name: contact.name,
+                               detail: contact.relation.isEmpty ? contact.phone : "\(contact.relation) · \(contact.phone)",
+                               phone: contact.phone)
+                }
+                .buttonStyle(.plain)
+            }
+
+            FamilyMedicinesSection(firstName: summary.firstName, showMedications: $showMedications,
+                                   identifier: "profile.manageMedications")
+
+            Text("Health baseline")
+                .font(.system(size: 15, weight: .black))
+                .foregroundStyle(CareTheme.ink)
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
+                SmallMetric(title: "Resting heart rate", value: summary.restingHeartRateRange.map { $0.lowerBound == $0.upperBound ? "\($0.lowerBound) bpm" : "\($0.lowerBound)–\($0.upperBound) bpm" } ?? "—",
+                            icon: "heart", color: CareTheme.coral)
+                SmallMetric(title: "Average sleep", value: summary.averageSleepMinutes.map { SeniorCareSummary.duration(minutes: $0) } ?? "—",
+                            icon: "moon", color: CareTheme.blue)
+                SmallMetric(title: "Daily steps", value: summary.averageSteps.map { $0.formatted() } ?? "—",
+                            icon: "shoeprints.fill", color: CareTheme.blue)
+                SmallMetric(title: "Medicines this week", value: summary.adherence.map { $0.expected == 0 ? "—" : "\(Int(($0.fraction * 100).rounded()))%" } ?? "—",
+                            icon: "pills", color: CareTheme.gold)
+            }
+
+            Button(role: .destructive) {
+                state.selectSenior(id: summary.id)
+                confirmRemove = true
+            } label: {
+                Text("Remove \(summary.firstName)")
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundStyle(CareTheme.coralDark)
+                    .frame(maxWidth: .infinity, minHeight: 44)
+            }
+            .buttonStyle(.plain)
+            .confirmationDialog("Remove \(summary.senior.name)?", isPresented: $confirmRemove, titleVisibility: .visible) {
+                Button("Remove", role: .destructive) {
+                    Task { await state.removeSenior(id: summary.id) }
+                }
+            } message: {
+                Text("Their check-ins, medicines and visits stop showing for everyone in the family.")
+            }
+        }
+        .onAppear { state.selectSenior(id: summary.id) }
+    }
+}
+
+/// Shown when a family member opens an SOS notification. FaceTime stays available for 15 seconds, then the request closes.
+struct FamilySOSCallView: View {
+    @Environment(AppState.self) private var state
+    @Environment(\.openURL) private var openURL
+    let seniorID: String
+    @State private var seconds = 15
+    @State private var finished = false
+
+    private var summary: SeniorCareSummary? {
+        state.seniorSummaries.first { $0.id == seniorID } ?? state.selectedSummary
+    }
+
+    var body: some View {
+        let name = summary?.firstName ?? "Your senior"
+        ZStack {
+            CareTheme.coral.ignoresSafeArea()
+            VStack(spacing: 18) {
+                Spacer()
+                Text(name)
+                    .font(.system(size: 34, weight: .black, design: .rounded))
+                    .foregroundStyle(.white)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.7)
+                Text("needs help")
+                    .font(.system(size: 22, weight: .bold))
+                    .foregroundStyle(.white.opacity(0.92))
+                if let phone = summary?.phone, let url = PhoneLinks.video(phone) {
+                    Button { openURL(url) } label: {
+                        Label("FaceTime \(name)", systemImage: "video.fill")
+                            .font(.system(size: 24, weight: .black))
+                            .foregroundStyle(CareTheme.coralDark)
+                            .frame(maxWidth: .infinity, minHeight: 76)
+                            .background(CareTheme.card, in: RoundedRectangle(cornerRadius: 26, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.horizontal, 28)
+                    .accessibilityIdentifier("family.sos.facetime")
+                }
+                Text("\(seconds)")
+                    .font(.system(size: 72, weight: .black, design: .rounded))
+                    .foregroundStyle(.white)
+                    .accessibilityLabel("Closing in \(seconds) seconds")
+                Text("This request closes in \(seconds) seconds")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.92))
+                    .multilineTextAlignment(.center)
+                Spacer()
+            }
+        }
+        .task {
+            state.selectSenior(id: seniorID)
+            while seconds > 0 && !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(1))
+                guard !Task.isCancelled else { return }
+                seconds -= 1
+            }
+            await closeRequest()
+        }
+    }
+
+    private func closeRequest() async {
+        guard !finished else { return }
+        finished = true
+        state.selectSenior(id: seniorID)
+        await state.acknowledgeEmergency()
+        FamilySOSNotice.shared.clear()
     }
 }

@@ -69,6 +69,33 @@ final class SeniorCareSummaryTests: XCTestCase {
         XCTAssertTrue(summary.isStepsBelowBaseline)
     }
 
+    func testLiveWatchPresenceReplacesTheHourlyGuess() async throws {
+        var snapshot = await demoSnapshot()
+        let id = InMemoryCareRepository.mayaID
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        snapshot.healthReadings = [
+            HealthReading(id: "worn", seniorID: id, recordedAt: now.addingTimeInterval(-2 * 86_400), kind: .worn, value: 30,
+                          valueSecondary: now.timeIntervalSince1970, source: "watch"),
+            WatchPresence.reading(seniorID: id, worn: false, reportedAt: now)
+        ]
+        let summary = try XCTUnwrap(SeniorCareSummary(snapshot: snapshot, seniorID: id, now: now))
+        XCTAssertFalse(summary.watchCollecting)
+        XCTAssertEqual(summary.watchLastSample, now)
+        XCTAssertEqual(summary.wornMinutesToday, 0)
+    }
+
+    func testWatchSnapshotBeatsThePhoneCopyForTheSameDay() async throws {
+        var snapshot = await demoSnapshot()
+        let id = InMemoryCareRepository.mayaID
+        snapshot.health = [
+            health(id, daysAgo: 0, steps: 100, sleep: 0, heart: 0, source: "healthkit"),
+            health(id, daysAgo: 0, steps: 2400, sleep: 400, heart: 64, source: "watch")
+        ]
+        let summary = try XCTUnwrap(SeniorCareSummary(snapshot: snapshot, seniorID: id))
+        XCTAssertEqual(summary.latestHealth?.source, "watch")
+        XCTAssertEqual(summary.latestHealth?.steps, 2400)
+    }
+
     func testSteadyActivityIsNotFlagged() async throws {
         let snapshot = await demoSnapshot()
         let summary = try XCTUnwrap(SeniorCareSummary(snapshot: snapshot, seniorID: InMemoryCareRepository.mayaID))

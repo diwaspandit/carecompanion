@@ -157,7 +157,7 @@ private struct RoleCard: View {
             .padding(.horizontal, 20)
             .padding(.vertical, 18)
             .frame(minHeight: 88)
-            .background(selected ? CareTheme.sage : .white, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
+            .background(selected ? CareTheme.sage : CareTheme.card, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 28, style: .continuous).stroke(selected ? .clear : CareTheme.cardStroke))
             .shadow(color: selected ? CareTheme.sage.opacity(0.18) : CareTheme.shadow.opacity(0.5), radius: 12, y: 6)
         }
@@ -270,7 +270,7 @@ struct SeniorLinkView: View {
                                 }
                                 .foregroundStyle(CareTheme.ink)
                                 .padding(18)
-                                .background(.white, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
+                                .background(CareTheme.card, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
                                 .overlay(RoundedRectangle(cornerRadius: 28, style: .continuous).stroke(CareTheme.cardStroke))
                             }
                             .buttonStyle(.plain)

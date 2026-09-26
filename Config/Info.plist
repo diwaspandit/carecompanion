@@ -6,6 +6,10 @@
 	<string>$(SUPABASE_HOST)</string>
 	<key>SupabaseAnonKey</key>
 	<string>$(SUPABASE_ANON_KEY)</string>
+	<key>NSUserActivityTypes</key>
+	<array>
+		<string>com.carecompanion.txst.messages</string>
+	</array>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
