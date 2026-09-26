@@ -184,6 +184,19 @@ final class CareCoreTests: XCTestCase {
         XCTAssertEqual(state.senderName(for: fromGone), "Former member")
     }
 
+    func testUnseenMessagesBecomeSeenForTheReader() async {
+        let repository = Repo()
+        repository.stageIncoming(CareMessage(id: "from-maya", senderProfileID: Repo.mayaProfileID, body: "Call me", date: Repo.referenceDate))
+        let state = AppState(repository: repository, now: { Repo.referenceDate })
+        XCTAssertEqual(state.latestUnseenMessages.map(\.id), ["from-maya"])
+        XCTAssertFalse(state.isSeen(state.messages.last!))
+
+        await state.markMessagesRead(["from-maya"])
+
+        XCTAssertTrue(state.unseenMessages.isEmpty)
+        XCTAssertTrue(state.isSeen(state.messages.last!))
+    }
+
     func testUpdateProfileChangesCurrentMember() async {
         let (state, _) = makeState()
         let saved = await state.updateProfile(displayName: " Diwas Sharma ", city: "Austin", phone: "+1 512 555 0199")
@@ -271,6 +284,26 @@ final class CareCoreTests: XCTestCase {
         XCTAssertEqual(synced.count, 2)
         XCTAssertTrue(synced.allSatisfy { $0.seniorID == Repo.mayaID })
         XCTAssertEqual(state.latestHealth?.source, "healthkit")
+        XCTAssertEqual(repository.snapshot.healthReadings.count, 4)
+        XCTAssertEqual(state.selectedSummary?.latestHeartRate, 72)
+        XCTAssertEqual(state.selectedSummary?.latestBloodPressureText, "122/78")
+    }
+
+    func testWatchWearIsSavedImmediatelyAndHealthTotalsWaitAnHour() async {
+        HealthUploadSchedule.reset()
+        let (state, repository) = makeState(profile: Repo.mayaProfileID, mayaLinked: true)
+        let hour = HealthDayAggregator.hourStart(for: Repo.referenceDate, calendar: Calendar(identifier: .gregorian))
+        let first = HealthReading(id: "hr", seniorID: "pending", recordedAt: hour, kind: .heartRate, value: 61, source: "watch")
+        await state.ingestWatchHealth(WatchHealthReport(worn: true, reportedAt: Repo.referenceDate, readings: [first]))
+
+        XCTAssertEqual(repository.snapshot.healthReadings.first { $0.kind == .presence }?.value, 1)
+        XCTAssertEqual(repository.snapshot.healthReadings.first { $0.kind == .heartRate }?.value, 61)
+        XCTAssertEqual(repository.snapshot.healthReadings.first { $0.kind == .heartRate }?.seniorID, Repo.mayaID)
+
+        let second = HealthReading(id: "hr2", seniorID: "pending", recordedAt: hour, kind: .heartRate, value: 99, source: "watch")
+        await state.ingestWatchHealth(WatchHealthReport(worn: false, reportedAt: Repo.referenceDate.addingTimeInterval(30), readings: [second]))
+        XCTAssertEqual(repository.snapshot.healthReadings.first { $0.kind == .presence }?.value, 0)
+        XCTAssertEqual(repository.snapshot.healthReadings.first { $0.kind == .heartRate }?.value, 61)
     }
 
     func testHealthSyncWaitsForPermission() async {
@@ -335,6 +368,25 @@ final class CareCoreTests: XCTestCase {
                       .vendorUnavailable, .invalidState("x"), .unknown("y")] {
             XCTAssertNotNil(error.errorDescription)
         }
+    }
+
+    func testMoodPromptIsDueAtNineAndSixUntilAnswered() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0) ?? .gmt
+        let morning = calendar.date(from: DateComponents(year: 2026, month: 9, day: 26, hour: 9, minute: 0))!
+        let before = morning.addingTimeInterval(-60)
+        XCTAssertNil(MoodPromptSchedule.due(now: before, timeZone: .gmt, morning: "9:00 AM", evening: "6:00 PM",
+                                            moodDates: [], askedAt: nil))
+        let due = MoodPromptSchedule.due(now: morning, timeZone: .gmt, morning: "9:00 AM", evening: "6:00 PM",
+                                         moodDates: [], askedAt: nil)
+        XCTAssertEqual(due?.askedAt, morning)
+        XCTAssertNil(MoodPromptSchedule.due(now: morning.addingTimeInterval(60), timeZone: .gmt, morning: "9:00 AM",
+                                            evening: "6:00 PM", moodDates: [morning], askedAt: nil))
+        let asked = morning.addingTimeInterval(30 * 60)
+        XCTAssertNotNil(MoodPromptSchedule.due(now: asked, timeZone: .gmt, morning: "9:00 AM", evening: "6:00 PM",
+                                               moodDates: [morning], askedAt: asked))
+        XCTAssertNil(MoodPromptSchedule.due(now: asked, timeZone: .gmt, morning: "9:00 AM", evening: "6:00 PM",
+                                           moodDates: [morning, asked], askedAt: asked))
     }
 
     func testSyncStatusTracking() {

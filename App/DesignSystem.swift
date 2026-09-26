@@ -1,25 +1,68 @@
 import SwiftUI
+import UIKit
+
+/// One appearance for the whole app. Senior and family share it.
+enum CareAppearance: String, CaseIterable {
+    case system
+    case light
+    case dark
+
+    static let storageKey = "care.appearance"
+
+    var colorScheme: ColorScheme? {
+        switch self {
+        case .system: nil
+        case .light: .light
+        case .dark: .dark
+        }
+    }
+
+    var label: String {
+        switch self {
+        case .system: "System"
+        case .light: "Light"
+        case .dark: "Dark"
+        }
+    }
+}
 
 enum CareTheme {
-    static let background = Color(red: 250/255, green: 250/255, blue: 247/255)
-    static let ink = Color(red: 43/255, green: 43/255, blue: 43/255)
-    static let secondaryText = Color(red: 132/255, green: 132/255, blue: 132/255)
-    static let mutedText = Color(red: 102/255, green: 102/255, blue: 102/255)
-    static let sage = Color(red: 112/255, green: 160/255, blue: 124/255)
-    static let sageDark = Color(red: 91/255, green: 137/255, blue: 105/255)
-    static let sagePale = Color(red: 220/255, green: 242/255, blue: 225/255)
-    static let coral = Color(red: 231/255, green: 125/255, blue: 105/255)
-    static let coralDark = Color(red: 151/255, green: 61/255, blue: 48/255)
-    static let coralPale = Color(red: 255/255, green: 229/255, blue: 223/255)
-    static let gold = Color(red: 240/255, green: 178/255, blue: 74/255)
-    static let goldDark = Color(red: 107/255, green: 85/255, blue: 43/255)
-    static let goldPale = Color(red: 255/255, green: 244/255, blue: 218/255)
-    static let blue = Color(red: 86/255, green: 159/255, blue: 205/255)
-    static let bluePale = Color(red: 221/255, green: 241/255, blue: 255/255)
-    static let grayPill = Color(red: 244/255, green: 243/255, blue: 240/255)
-    static let cardStroke = Color.black.opacity(0.10)
-    static let shadow = Color.black.opacity(0.08)
-    static let heading = Color(red: 0.16, green: 0.23, blue: 0.31)
+    static let background = adaptive(light: rgb(250, 250, 247), dark: rgb(28, 28, 26))
+    static let card = adaptive(light: .white, dark: rgb(44, 44, 41))
+    static let ink = adaptive(light: rgb(43, 43, 43), dark: rgb(245, 244, 240))
+    static let secondaryText = adaptive(light: rgb(132, 132, 132), dark: rgb(176, 174, 168))
+    static let mutedText = adaptive(light: rgb(102, 102, 102), dark: rgb(160, 158, 152))
+    static let sage = adaptive(light: rgb(112, 160, 124), dark: rgb(138, 186, 150))
+    /// Button fill behind white text. Stays dark in both appearances so the label stays readable.
+    static let action = Color(red: 78 / 255, green: 118 / 255, blue: 90 / 255)
+    /// Alert fill behind white text. Coral only, and dark enough in both appearances.
+    static let danger = Color(red: 168 / 255, green: 68 / 255, blue: 54 / 255)
+    static let sageDark = adaptive(light: rgb(91, 137, 105), dark: rgb(186, 220, 194))
+    static let sagePale = adaptive(light: rgb(220, 242, 225), dark: rgb(36, 58, 44))
+    static let coral = adaptive(light: rgb(231, 125, 105), dark: rgb(232, 140, 122))
+    static let coralDark = adaptive(light: rgb(151, 61, 48), dark: rgb(245, 186, 176))
+    static let coralPale = adaptive(light: rgb(255, 229, 223), dark: rgb(62, 36, 32))
+    static let gold = adaptive(light: rgb(240, 178, 74), dark: rgb(232, 186, 96))
+    static let goldDark = adaptive(light: rgb(107, 85, 43), dark: rgb(245, 220, 160))
+    /// Text that sits on the solid gold fill. Stays dark in both appearances.
+    static let onGold = Color(red: 107/255, green: 85/255, blue: 43/255)
+    static let goldPale = adaptive(light: rgb(255, 244, 218), dark: rgb(58, 46, 28))
+    static let blue = adaptive(light: rgb(86, 159, 205), dark: rgb(126, 186, 220))
+    static let bluePale = adaptive(light: rgb(221, 241, 255), dark: rgb(28, 46, 58))
+    static let grayPill = adaptive(light: rgb(244, 243, 240), dark: rgb(58, 58, 54))
+    static let cardStroke = adaptive(light: UIColor.black.withAlphaComponent(0.10), dark: UIColor.white.withAlphaComponent(0.14))
+    static let shadow = adaptive(light: UIColor.black.withAlphaComponent(0.08), dark: UIColor.black.withAlphaComponent(0.45))
+    static let heading = adaptive(light: UIColor(red: 0.16, green: 0.23, blue: 0.31, alpha: 1),
+                                  dark: UIColor(red: 0.90, green: 0.92, blue: 0.94, alpha: 1))
+    static let hairline = adaptive(light: UIColor.black.withAlphaComponent(0.08), dark: UIColor.white.withAlphaComponent(0.12))
+
+    private static func rgb(_ red: CGFloat, _ green: CGFloat, _ blue: CGFloat) -> UIColor {
+        UIColor(red: red / 255, green: green / 255, blue: blue / 255, alpha: 1)
+    }
+
+    private static func adaptive(light: UIColor, dark: UIColor) -> Color {
+        Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? dark : light })
+    }
 
     static func seniorColor(at index: Int) -> Color {
         [gold, sage, blue, coral][index % 4]
@@ -28,7 +71,7 @@ enum CareTheme {
 
 struct LovableCard<Content: View>: View {
     var padding: CGFloat = 20
-    var fill: Color = .white
+    var fill: Color = CareTheme.card
     var stroke: Color = CareTheme.cardStroke
     @ViewBuilder var content: Content
 
@@ -71,7 +114,7 @@ struct AvatarCircle: View {
             .foregroundStyle(CareTheme.ink)
             .frame(width: size, height: size)
             .background(color.opacity(0.18), in: Circle())
-            .overlay(Circle().stroke(selected ? color : Color.black.opacity(0.08), lineWidth: selected ? 2 : 1))
+            .overlay(Circle().stroke(selected ? color : CareTheme.cardStroke, lineWidth: selected ? 2 : 1))
             .accessibilityHidden(true)
     }
 }
@@ -150,8 +193,8 @@ struct ReferenceBottomBar<Item: Hashable>: View {
         .padding(.top, 8)
         .padding(.horizontal, 6)
         .padding(.bottom, 8)
-        .background(.white)
-        .overlay(Rectangle().fill(Color.black.opacity(0.08)).frame(height: 1), alignment: .top)
+        .background(CareTheme.card)
+        .overlay(Rectangle().fill(CareTheme.hairline).frame(height: 1), alignment: .top)
     }
 }
 
@@ -181,7 +224,7 @@ struct PlainPill: View {
 }
 
 struct ReferenceButtonStyle: ButtonStyle {
-    var fill = CareTheme.sage
+    var fill = CareTheme.action
     var foreground = Color.white
     var height: CGFloat = 96
     var radius: CGFloat = 32
@@ -204,7 +247,7 @@ extension View {
     func careField() -> some View {
         padding(.horizontal, 16)
             .frame(minHeight: 54)
-            .background(.white, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .background(CareTheme.card, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(CareTheme.cardStroke))
     }
 }
@@ -213,7 +256,7 @@ struct PrimaryActionButton: View {
     let title: String
     var isLoading = false
     var isDisabled = false
-    var fill = CareTheme.sage
+    var fill = CareTheme.action
     let action: () -> Void
 
     var body: some View {
@@ -277,10 +320,17 @@ struct SectionTitle: View {
     }
 }
 
-/// Phone links for the dialer and Messages. Returns nil when the string has no digits.
+/// Phone links for FaceTime, the dialer, and Messages. Returns nil when the string has no digits.
 enum PhoneLinks {
+    static func video(_ phone: String) -> URL? { url("facetime", phone) }
     static func call(_ phone: String) -> URL? { url("tel", phone) }
     static func text(_ phone: String) -> URL? { url("sms", phone) }
+
+    static func sameNumber(_ lhs: String, _ rhs: String) -> Bool {
+        let left = lhs.filter(\.isNumber)
+        let right = rhs.filter(\.isNumber)
+        return !left.isEmpty && left == right
+    }
 
     private static func url(_ scheme: String, _ phone: String) -> URL? {
         let allowed = phone.filter { $0.isNumber || $0 == "+" }

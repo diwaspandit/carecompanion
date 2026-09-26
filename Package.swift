@@ -3,7 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "CareCore",
-    platforms: [.iOS(.v17), .macOS(.v14)],
+    platforms: [.iOS(.v17), .macOS(.v14), .watchOS(.v10)],
     products: [.library(name: "CareCore", targets: ["CareCore"])],
     targets: [
         .target(name: "CareCore"),

@@ -41,6 +41,7 @@ struct MedicineListView: View {
     @Environment(AppState.self) private var state
     var title = "Today's medicines"
     var large = true
+    @State private var editing: Medication?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -55,9 +56,12 @@ struct MedicineListView: View {
                     .foregroundStyle(CareTheme.secondaryText)
             }
             ForEach(medications) { medication in
-                MedicineRow(medication: medication, large: large)
+                MedicineRow(medication: medication, large: large) {
+                    editing = medication
+                }
             }
         }
+        .sheet(item: $editing) { MedicationFormView(medication: $0) }
     }
 }
 
@@ -65,61 +69,114 @@ struct MedicineRow: View {
     @Environment(AppState.self) private var state
     let medication: Medication
     var large = true
+    var onEdit: (() -> Void)? = nil
 
     private var detail: String {
-        [medication.dosage, medication.scheduledTime].filter { !$0.isEmpty }.joined(separator: " · ")
+        var parts = [medication.dosage, medication.scheduledTime].filter { !$0.isEmpty }
+        if let schedule = CareSchedule.medicationScheduleText(medication) { parts.append(schedule) }
+        if !CareSchedule.medicationIsDue(medication, on: Date(), timeZone: state.selectedTimeZone) {
+            parts.append("Not today")
+        }
+        return parts.joined(separator: " · ")
     }
 
     var body: some View {
-        Button {
-            Task { await state.toggleMedication(id: medication.id) }
-        } label: {
-            HStack(spacing: 16) {
-                ZStack {
-                    Circle()
-                        .fill(medication.taken ? CareTheme.sage : .white)
-                        .overlay(Circle().stroke(medication.taken ? CareTheme.sage : Color.black.opacity(0.18), lineWidth: 2))
-                    if medication.taken {
-                        Image(systemName: "checkmark")
-                            .font(.system(size: large ? 22 : 16, weight: .black))
-                            .foregroundStyle(.white)
+        HStack(spacing: 12) {
+            Button {
+                Task { await state.toggleMedication(id: medication.id) }
+            } label: {
+                HStack(spacing: 16) {
+                    ZStack {
+                        Circle()
+                            .fill(medication.taken ? CareTheme.action : CareTheme.grayPill)
+                            .overlay(Circle().stroke(medication.taken ? CareTheme.action : CareTheme.cardStroke, lineWidth: 1))
+                        if medication.taken {
+                            Image(systemName: "checkmark")
+                                .font(.system(size: large ? 22 : 16, weight: .black))
+                                .foregroundStyle(.white)
+                        }
                     }
+                    .frame(width: large ? 48 : 36, height: large ? 48 : 36)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(medication.name)
+                            .font(.system(size: large ? 22 : 17, weight: .semibold))
+                            .foregroundStyle(CareTheme.ink)
+                        Text(detail)
+                            .font(.system(size: large ? 18 : 14))
+                            .foregroundStyle(CareTheme.secondaryText)
+                    }
+                    Spacer(minLength: 0)
                 }
-                .frame(width: large ? 48 : 36, height: large ? 48 : 36)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(medication.name)
-                        .font(.system(size: large ? 22 : 17, weight: .black))
-                        .foregroundStyle(CareTheme.ink)
-                    Text(detail)
-                        .font(.system(size: large ? 18 : 14))
-                        .foregroundStyle(CareTheme.secondaryText)
-                }
-                Spacer()
             }
-            .padding(large ? 20 : 14)
-            .background(medication.taken ? CareTheme.sagePale : .white, in: RoundedRectangle(cornerRadius: large ? 32 : 22, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: large ? 32 : 22, style: .continuous)
-                .stroke(medication.taken ? CareTheme.sage.opacity(0.38) : CareTheme.cardStroke, lineWidth: large ? 2 : 1))
+            .buttonStyle(.plain)
+            .accessibilityLabel("\(medication.name), \(detail)")
+            .accessibilityValue(medication.taken ? "Taken" : "Not taken")
+            .accessibilityHint(medication.taken ? "Double tap to mark as not taken" : "Double tap to mark as taken")
+            if state.role == .family, let onEdit {
+                Button(action: onEdit) {
+                    Image(systemName: "pencil")
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundStyle(CareTheme.sageDark)
+                        .frame(width: 36, height: 36)
+                        .background(CareTheme.sagePale, in: Circle())
+                }
+                .buttonStyle(.borderless)
+                .accessibilityLabel("Edit \(medication.name)")
+                .accessibilityIdentifier("medication.edit.\(medication.id)")
+                MedicationRemindButton(medication: medication)
+            }
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel("\(medication.name), \(detail)")
-        .accessibilityValue(medication.taken ? "Taken" : "Not taken")
-        .accessibilityHint(medication.taken ? "Double tap to mark as not taken" : "Double tap to mark as taken")
+        .padding(large ? 16 : 14)
+        .background(CareTheme.card, in: RoundedRectangle(cornerRadius: large ? 18 : 16, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: large ? 18 : 16, style: .continuous)
+            .stroke(CareTheme.hairline, lineWidth: 1))
+    }
+}
+
+/// Asks the senior's iPhone and watch to show this medicine immediately.
+struct MedicationRemindButton: View {
+    @Environment(AppState.self) private var state
+    let medication: Medication
+    @State private var isSending = false
+
+    var body: some View {
+        Button {
+            Task {
+                isSending = true
+                await state.requestMedicationReminder(id: medication.id)
+                isSending = false
+            }
+        } label: {
+            Image(systemName: "bell.fill")
+                .font(.system(size: 16, weight: .bold))
+                .foregroundStyle(CareTheme.ink)
+                .frame(width: 36, height: 36)
+                .background(CareTheme.gold.opacity(0.35), in: Circle())
+        }
+        .buttonStyle(.borderless)
+        .disabled(isSending)
+        .accessibilityLabel("Remind \(medication.name) now")
+        .accessibilityIdentifier("medication.remind.\(medication.id)")
     }
 }
 
 struct AppointmentRowView: View {
     let appointment: Appointment
     let timeZone: TimeZone
+    var displayDate: Date? = nil
+
+    private var shownDate: Date { displayDate ?? appointment.date }
 
     private var dayText: String {
-        appointment.date.formatted(Date.FormatStyle(timeZone: timeZone).weekday(.abbreviated)).uppercased()
-            + "\n" + appointment.date.formatted(Date.FormatStyle(timeZone: timeZone).day())
+        shownDate.formatted(Date.FormatStyle(timeZone: timeZone).weekday(.abbreviated)).uppercased()
+            + "\n" + shownDate.formatted(Date.FormatStyle(timeZone: timeZone).day())
     }
 
     private var detail: String {
-        [appointment.date.formatted(Date.FormatStyle(timeZone: timeZone).month(.abbreviated).day().hour().minute()),
-         appointment.location].filter { !$0.isEmpty }.joined(separator: " · ")
+        var parts = [shownDate.formatted(Date.FormatStyle(timeZone: timeZone).month(.abbreviated).day().hour().minute()),
+                     appointment.location].filter { !$0.isEmpty }
+        if let schedule = CareSchedule.visitScheduleText(appointment) { parts.append(schedule) }
+        return parts.joined(separator: " · ")
     }
 
     var body: some View {
@@ -137,6 +194,11 @@ struct AppointmentRowView: View {
                         Text(appointment.clinician).font(.system(size: 15, weight: .semibold)).foregroundStyle(CareTheme.mutedText)
                     }
                     Text(detail).font(.system(size: 13)).foregroundStyle(CareTheme.secondaryText)
+                    if let outcome = appointment.outcome {
+                        Text(outcome == .went ? "Went" : "Missed")
+                            .font(.system(size: 13, weight: .black))
+                            .foregroundStyle(outcome == .went ? CareTheme.sageDark : CareTheme.coralDark)
+                    }
                     if !appointment.notes.isEmpty {
                         Text(appointment.notes).font(.system(size: 14)).foregroundStyle(CareTheme.mutedText)
                     }
@@ -162,6 +224,13 @@ struct ContactRow: View {
                 Text(detail).font(.system(size: 13)).foregroundStyle(CareTheme.secondaryText)
             }
             Spacer()
+            if let video = PhoneLinks.video(phone) {
+                Button { openURL(video) } label: {
+                    CircleIcon(systemName: "video.fill", color: CareTheme.sageDark, size: 40, iconSize: 16, fillOpacity: 0.18)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("FaceTime \(name)")
+            }
             if let call = PhoneLinks.call(phone) {
                 Button { openURL(call) } label: {
                     CircleIcon(systemName: "phone.fill", color: CareTheme.sageDark, size: 40, iconSize: 16, fillOpacity: 0.18)
@@ -286,5 +355,66 @@ struct SeniorDetailsFields: View {
             TimeZoneField(identifier: $timeZone)
                 .careField()
         }
+    }
+}
+
+/// One screen for a dose. It stays up until Taken or Snooze, with no other way out.
+struct MedicationAlertScreen: View {
+    @State private var alert = MedicationAlert.shared
+    @State private var isBusy = false
+
+    var body: some View {
+        if alert.medicationID != nil {
+            VStack(spacing: 16) {
+                Spacer(minLength: 0)
+                Text("Time to take")
+                    .font(.system(size: 22, weight: .bold))
+                    .foregroundStyle(CareTheme.secondaryText)
+                Text(alert.name)
+                    .font(.system(size: 40, weight: .bold))
+                    .foregroundStyle(CareTheme.ink)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.55)
+                if !alert.dosage.isEmpty {
+                    Text(alert.dosage)
+                        .font(.system(size: 24, weight: .bold))
+                        .foregroundStyle(CareTheme.ink)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                }
+                Spacer(minLength: 0)
+                alertButton(title: "Taken", systemImage: "checkmark", fill: CareTheme.action, foreground: .white, snooze: false)
+                    .accessibilityIdentifier("dose.taken")
+                alertButton(title: "Snooze 15 min", systemImage: "clock", fill: CareTheme.grayPill, foreground: CareTheme.ink, snooze: true)
+                    .accessibilityIdentifier("dose.snooze")
+            }
+            .padding(.horizontal, 24)
+            .padding(.bottom, 12)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(CareTheme.background.ignoresSafeArea())
+            .disabled(isBusy)
+        }
+    }
+
+    private func alertButton(title: String, systemImage: String, fill: Color, foreground: Color, snooze: Bool) -> some View {
+        Button {
+            Task {
+                isBusy = true
+                if snooze {
+                    await MedicationReminderCenter.shared.snoozePresentedDose()
+                } else {
+                    await MedicationReminderCenter.shared.takePresentedDose()
+                }
+                isBusy = false
+            }
+        } label: {
+            Label(title, systemImage: systemImage)
+                .font(.system(size: 24, weight: .black))
+                .foregroundStyle(foreground)
+                .frame(maxWidth: .infinity, minHeight: 72)
+                .background(fill, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        }
+        .buttonStyle(.plain)
     }
 }

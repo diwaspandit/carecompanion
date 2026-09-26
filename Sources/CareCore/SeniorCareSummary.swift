@@ -22,10 +22,21 @@ public struct SeniorCareSummary: Identifiable, Equatable, Sendable {
     public let adherence: Adherence?
     /// One entry per day, newest first. HealthKit values win over other sources for the same day.
     public let healthHistory: [HealthSnapshot]
+    public let latestHeartRate: Int?
+    public let latestBloodPressureText: String?
+    public let liveSteps: Int?
+    public let liveSleepMinutes: Int?
+        /// The watch last reported that it is on the wrist, and that report is still fresh.
+        public let watchCollecting: Bool
+    public let watchLastSample: Date?
+    /// Minutes the watch was worn today, from heart-rate samples.
+    public let wornMinutesToday: Int
     public let hasEmergency: Bool
     public let openAlertDate: Date?
     public let nextAppointment: Appointment?
     public let contacts: [EmergencyContact]
+    private let evaluatedAt: Date
+    private let timeZone: TimeZone
 
     public init?(snapshot: CareSnapshot, seniorID: String, now: Date = Date()) {
         guard let senior = snapshot.seniors.first(where: { $0.id == seniorID }) else { return nil }
@@ -33,6 +44,8 @@ public struct SeniorCareSummary: Identifiable, Equatable, Sendable {
         calendar.timeZone = TimeZone(identifier: senior.timeZoneIdentifier) ?? .gmt
 
         self.senior = senior
+        evaluatedAt = now
+        timeZone = calendar.timeZone
         linkedMember = senior.profileID.flatMap { profileID in snapshot.members.first { $0.profileID == profileID } }
         checkInDate = snapshot.checkIns.filter { $0.seniorID == seniorID }.map(\.date).max()
 
@@ -51,12 +64,61 @@ public struct SeniorCareSummary: Identifiable, Equatable, Sendable {
                                          events: snapshot.medicationEvents.filter { $0.seniorID == seniorID },
                                          calendar: calendar, now: now)
         healthHistory = Self.oneEntryPerDay(snapshot.health.filter { $0.seniorID == seniorID })
+        let readings = snapshot.healthReadings.filter { $0.seniorID == seniorID }.sorted { $0.recordedAt > $1.recordedAt }
+        if let heart = readings.first(where: { $0.kind == .heartRate }) {
+            latestHeartRate = Int(heart.value.rounded())
+        } else if let resting = healthHistory.first?.restingHeartRate, resting > 0 {
+            latestHeartRate = resting
+        } else {
+            latestHeartRate = nil
+        }
+        if let pressure = readings.first(where: { $0.kind == .bloodPressure }), let diastolic = pressure.valueSecondary {
+            latestBloodPressureText = "\(Int(pressure.value.rounded()))/\(Int(diastolic.rounded()))"
+        } else {
+            latestBloodPressureText = nil
+        }
+        let stepsToday = readings.filter { $0.kind == .steps && calendar.isDate($0.recordedAt, inSameDayAs: now) }
+            .reduce(0) { $0 + Int($1.value.rounded()) }
+        if stepsToday > 0 {
+            liveSteps = stepsToday
+        } else if let steps = healthHistory.first?.steps, steps > 0 {
+            liveSteps = steps
+        } else {
+            liveSteps = nil
+        }
+        let recentSleep = readings.filter { $0.kind == .sleep && now.timeIntervalSince($0.recordedAt) < 24 * 3600 }
+            .reduce(0) { $0 + Int($1.value.rounded()) }
+        if recentSleep > 0 {
+            liveSleepMinutes = recentSleep
+        } else if let sleep = healthHistory.first?.sleepMinutes, sleep > 0 {
+            liveSleepMinutes = sleep
+        } else {
+            liveSleepMinutes = nil
+        }
+        let worn = readings.filter { $0.kind == .worn }
+        if let presence = readings.first(where: { $0.kind == .presence }), let stamp = presence.valueSecondary {
+            let reported = Date(timeIntervalSince1970: stamp)
+            watchLastSample = reported
+            watchCollecting = WatchPresence.isOnWrist(value: presence.value, reportedAt: reported, now: now)
+        } else {
+            watchLastSample = worn.compactMap(\.valueSecondary).max().map { Date(timeIntervalSince1970: $0) }
+            watchCollecting = watchLastSample.map { now.timeIntervalSince($0) < 15 * 60 } ?? false
+        }
+        wornMinutesToday = worn
+            .filter { calendar.isDate($0.recordedAt, inSameDayAs: now) }
+            .reduce(0) { $0 + Int($1.value.rounded()) }
 
         let openAlerts = snapshot.alerts.filter { $0.seniorID == seniorID && !$0.acknowledged }
         hasEmergency = !openAlerts.isEmpty
         openAlertDate = openAlerts.map(\.date).max()
         nextAppointment = snapshot.appointments
-            .filter { $0.seniorID == seniorID && $0.date >= now.addingTimeInterval(-3600) }
+            .filter { $0.seniorID == seniorID }
+            .compactMap { visit -> Appointment? in
+                guard let next = CareSchedule.nextOccurrence(of: visit, after: now, timeZone: calendar.timeZone) else { return nil }
+                var showing = visit
+                showing.date = next
+                return showing
+            }
             .min { $0.date < $1.date }
         contacts = snapshot.contacts.filter { $0.seniorID == seniorID }
     }
@@ -71,9 +133,13 @@ public struct SeniorCareSummary: Identifiable, Equatable, Sendable {
         return phone
     }
     public var isCheckedIn: Bool { checkInDate != nil }
-    public var medicationsTaken: Int { medications.filter(\.taken).count }
-    public var medicationsTotal: Int { medications.count }
-    public var missedMedications: [Medication] { medications.filter { !$0.taken } }
+    /// Medicines scheduled for the day this summary was built.
+    public var medicationsDueToday: [Medication] {
+        medications.filter { CareSchedule.medicationIsDue($0, on: evaluatedAt, timeZone: timeZone) }
+    }
+    public var medicationsTaken: Int { medicationsDueToday.filter(\.taken).count }
+    public var medicationsTotal: Int { medicationsDueToday.count }
+    public var missedMedications: [Medication] { medicationsDueToday.filter { !$0.taken } }
     public var latestHealth: HealthSnapshot? { healthHistory.first }
 
     /// Average steps across the days before the latest one, ignoring days with no step data.
@@ -173,10 +239,13 @@ public struct SeniorCareSummary: Identifiable, Equatable, Sendable {
     }
 
     private static func oneEntryPerDay(_ entries: [HealthSnapshot]) -> [HealthSnapshot] {
-        Dictionary(grouping: entries) { CareRecords.dateOnly.string(from: $0.date) }
-            .values
-            .compactMap { day in day.first { $0.source == "healthkit" } ?? day.max { $0.date < $1.date } }
-            .sorted { $0.date > $1.date }
+        let grouped = Dictionary(grouping: entries) { CareRecords.dateOnly.string(from: $0.date) }
+        return grouped.values.compactMap { day -> HealthSnapshot? in
+            if let watch = day.first(where: { $0.source == "watch" }) { return watch }
+            if let phone = day.first(where: { $0.source == "healthkit" }) { return phone }
+            return day.max { $0.date < $1.date }
+        }
+        .sorted { $0.date > $1.date }
     }
 
     private static func weeklyAdherence(medications: [Medication], events: [MedicationEvent],
@@ -192,6 +261,11 @@ public struct SeniorCareSummary: Identifiable, Equatable, Sendable {
             "\($0.medicationID)|\(calendar.startOfDay(for: $0.date).timeIntervalSince1970)"
         }.compactMapValues { $0.max { $0.date < $1.date } }
         let taken = latestPerDose.values.filter { $0.status == .taken }.count
-        return Adherence(taken: taken, expected: medications.count * trackedDays)
+        var expected = 0
+        for offset in 0..<trackedDays {
+            guard let day = calendar.date(byAdding: .day, value: offset, to: firstDay) else { continue }
+            expected += medications.filter { CareSchedule.medicationIsDue($0, on: day, timeZone: calendar.timeZone) }.count
+        }
+        return Adherence(taken: taken, expected: expected)
     }
 }

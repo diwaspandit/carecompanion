@@ -69,28 +69,47 @@ import Foundation
             throw CareServiceError.invalidState("Medication not found")
         }
         snapshot.medications[index].taken = taken
+        if taken { snapshot.medications[index].snoozeUntil = nil }
         snapshot.medicationEvents.append(MedicationEvent(id: makeID("event"), medicationID: medicationID,
                                                          seniorID: snapshot.medications[index].seniorID,
                                                          status: taken ? .taken : .skipped, date: date))
     }
 
-    func addMedication(seniorID: String, name: String, dosage: String, scheduledTime: String) async throws {
+    func addMedication(seniorID: String, name: String, dosage: String, scheduledTime: String,
+                       weekdays: [Int], endsOn: Date?) async throws {
         try requireSenior(seniorID)
         snapshot.medications.append(Medication(id: makeID("med"), seniorID: seniorID, name: name, dosage: dosage,
-                                               scheduledTime: scheduledTime))
+                                               scheduledTime: scheduledTime, weekdays: weekdays, endsOn: endsOn))
     }
 
-    func updateMedication(id: String, name: String, dosage: String, scheduledTime: String) async throws {
+    func updateMedication(id: String, name: String, dosage: String, scheduledTime: String,
+                          weekdays: [Int], endsOn: Date?) async throws {
         guard let index = snapshot.medications.firstIndex(where: { $0.id == id }) else {
             throw CareServiceError.invalidState("Medication not found")
         }
         snapshot.medications[index].name = name
         snapshot.medications[index].dosage = dosage
         snapshot.medications[index].scheduledTime = scheduledTime
+        snapshot.medications[index].weekdays = weekdays
+        snapshot.medications[index].endsOn = endsOn
     }
 
     func deleteMedication(id: String) async throws {
         snapshot.medications.removeAll { $0.id == id }
+    }
+
+    func snoozeMedication(id: String, until: Date) async throws {
+        guard let index = snapshot.medications.firstIndex(where: { $0.id == id }) else {
+            throw CareServiceError.invalidState("Medication not found")
+        }
+        snapshot.medications[index].snoozeUntil = until
+    }
+
+    func requestMedicationReminder(id: String, at date: Date) async throws {
+        guard let index = snapshot.medications.firstIndex(where: { $0.id == id }) else {
+            throw CareServiceError.invalidState("Medication not found")
+        }
+        snapshot.medications[index].nudgeAt = date
     }
 
     func upsertHealthSnapshots(_ snapshots: [HealthSnapshot]) async throws {
@@ -102,6 +121,16 @@ import Foundation
             snapshot.health.append(item)
         }
         snapshot.health.sort { $0.date > $1.date }
+    }
+
+    func upsertHealthReadings(_ readings: [HealthReading]) async throws {
+        for item in readings where snapshot.seniors.contains(where: { $0.id == item.seniorID }) {
+            snapshot.healthReadings.removeAll {
+                $0.seniorID == item.seniorID && $0.kind == item.kind && $0.recordedAt == item.recordedAt
+            }
+            snapshot.healthReadings.append(item)
+        }
+        snapshot.healthReadings.sort { $0.recordedAt > $1.recordedAt }
     }
 
     func saveAppointment(_ appointment: Appointment) async throws {
@@ -121,6 +150,14 @@ import Foundation
         snapshot.appointments.removeAll { $0.id == id }
     }
 
+    func logVisit(id: String, outcome: VisitOutcome, at date: Date) async throws {
+        guard let index = snapshot.appointments.firstIndex(where: { $0.id == id }) else {
+            throw CareServiceError.invalidState("Visit not found")
+        }
+        snapshot.appointments[index].outcome = outcome
+        snapshot.appointments[index].loggedAt = date
+    }
+
     func triggerSOS(seniorID: String, at date: Date) async throws {
         try requireSenior(seniorID)
         guard !snapshot.alerts.contains(where: { $0.seniorID == seniorID && !$0.acknowledged }) else { return }
@@ -137,7 +174,28 @@ import Foundation
         snapshot.seniors.append(AccountSenior(id: senior.id.isEmpty ? makeID("senior") : senior.id,
                                               accountID: senior.accountID, name: senior.name, age: senior.age,
                                               city: senior.city, timeZoneIdentifier: senior.timeZoneIdentifier,
-                                              profileID: senior.profileID))
+                                              profileID: senior.profileID, moodMorning: senior.moodMorning,
+                                              moodEvening: senior.moodEvening, moodPromptAt: senior.moodPromptAt))
+    }
+
+    func updateMoodSchedule(seniorID: String, morning: String, evening: String) async throws {
+        guard let index = snapshot.seniors.firstIndex(where: { $0.id == seniorID }) else {
+            throw CareServiceError.invalidState("Senior not found")
+        }
+        snapshot.seniors[index].moodMorning = morning
+        snapshot.seniors[index].moodEvening = evening
+    }
+
+    func requestMoodPrompt(seniorID: String, at date: Date) async throws {
+        guard let index = snapshot.seniors.firstIndex(where: { $0.id == seniorID }) else {
+            throw CareServiceError.invalidState("Senior not found")
+        }
+        snapshot.seniors[index].moodPromptAt = date
+    }
+
+    func clearMoodPrompt(seniorID: String) async throws {
+        guard let index = snapshot.seniors.firstIndex(where: { $0.id == seniorID }) else { return }
+        snapshot.seniors[index].moodPromptAt = nil
     }
 
     func updateSenior(_ senior: AccountSenior) async throws {
@@ -182,9 +240,37 @@ import Foundation
         snapshot.contacts.removeAll { $0.id == id }
     }
 
+    private var voiceClips: [String: Data] = [:]
+
     func sendMessage(_ body: String) async throws {
         snapshot.messages.append(CareMessage(id: makeID("message"), senderProfileID: currentProfileID, body: body,
                                              date: Self.referenceDate.addingTimeInterval(Double(nextID))))
+    }
+
+    func sendVoiceMessage(_ data: Data) async throws {
+        let path = "memory/\(makeID("voice"))"
+        voiceClips[path] = data
+        snapshot.messages.append(CareMessage(id: makeID("message"), senderProfileID: currentProfileID,
+                                             body: "Voice message", date: Self.referenceDate.addingTimeInterval(Double(nextID)),
+                                             audioPath: path))
+    }
+
+    func voiceAudio(path: String) async throws -> Data {
+        guard let data = voiceClips[path] else { throw CareServiceError.invalidState("Voice message not found") }
+        return data
+    }
+
+    func stageIncoming(_ message: CareMessage) {
+        snapshot.messages.append(message)
+    }
+
+    func markMessagesRead(_ ids: [String]) async throws {
+        guard let currentProfileID else { throw CareServiceError.unauthorized }
+        for index in snapshot.messages.indices where ids.contains(snapshot.messages[index].id) {
+            if !snapshot.messages[index].readerProfileIDs.contains(currentProfileID) {
+                snapshot.messages[index].readerProfileIDs.append(currentProfileID)
+            }
+        }
     }
 
     func updateProfile(displayName: String, city: String, phone: String) async throws {
@@ -216,6 +302,16 @@ struct StubHealthDataProvider: HealthDataProvider {
     func requestPermission() async throws {}
     func startBackgroundSync() async throws {}
     func stopBackgroundSync() async {}
+
+    func readings(seniorID: String, endingAt date: Date) async throws -> [HealthReading] {
+        let hour = Calendar.current.dateInterval(of: .hour, for: date)?.start ?? date
+        return [
+            HealthReading(id: "hr-\(seniorID)", seniorID: seniorID, recordedAt: hour, kind: .heartRate, value: 72, source: "healthkit"),
+            HealthReading(id: "bp-\(seniorID)", seniorID: seniorID, recordedAt: hour, kind: .bloodPressure, value: 122, valueSecondary: 78, source: "healthkit"),
+            HealthReading(id: "steps-\(seniorID)", seniorID: seniorID, recordedAt: hour, kind: .steps, value: 800, source: "healthkit"),
+            HealthReading(id: "sleep-\(seniorID)", seniorID: seniorID, recordedAt: hour, kind: .sleep, value: 40, source: "healthkit")
+        ]
+    }
 
     func snapshots(seniorID: String, endingAt date: Date) async throws -> [HealthSnapshot] {
         var calendar = Calendar(identifier: .gregorian)

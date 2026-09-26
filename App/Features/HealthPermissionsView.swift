@@ -24,7 +24,7 @@ struct HealthPermissionsView: View {
                             .accessibilityHidden(true)
                         Text("Share Apple Health")
                             .font(.system(size: 30, weight: .black))
-                        Text("Your family sees a daily total for each of these, so they know how your days are going.")
+                        Text("Your family sees a daily total for each of these. The watch sends them to this iPhone, which saves them once an hour.")
                             .font(.system(size: 17))
                             .foregroundStyle(CareTheme.mutedText)
                     }
@@ -77,7 +77,10 @@ struct HealthPermissionsView: View {
 
     private var syncSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            let synced = state.snapshot.health.filter { $0.seniorID == state.linkedSenior?.id && $0.source == "healthkit" }
+            let syncedDays = Set(state.snapshot.health.filter {
+                $0.seniorID == state.linkedSenior?.id && ($0.source == "watch" || $0.source == "healthkit")
+            }.map { CareRecords.dateOnly.string(from: $0.date) })
+            let synced = syncedDays
             Label(synced.isEmpty ? "Access allowed. No Health data found for the past week yet." : "Sharing \(synced.count) days with your family",
                   systemImage: "checkmark.circle.fill")
                 .font(.system(size: 16, weight: .semibold))

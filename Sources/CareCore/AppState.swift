@@ -15,6 +15,10 @@ import Observation
     @ObservationIgnored private let aiService: any AIService
     @ObservationIgnored private let now: () -> Date
     @ObservationIgnored private var healthObserver: (any NSObjectProtocol)?
+    @ObservationIgnored private var cachedWatchReadings: [HealthReading] = []
+    @ObservationIgnored private var cachedWatchSnapshots: [HealthSnapshot] = []
+    @ObservationIgnored private var cachedWatchHealthAt: Date?
+    @ObservationIgnored private var lastPresenceReport: Date?
 
     public init(
         repository: any CareRepository,
@@ -66,7 +70,9 @@ import Observation
     public var nextAppointment: Appointment? { selectedSummary?.nextAppointment }
     public var activeAlertCount: Int {
         var count = 0
-        if medicationsTakenCount < medications.count { count += 1 }
+        let zone = selectedSenior.flatMap { TimeZone(identifier: $0.timeZoneIdentifier) } ?? .current
+        let due = medications.filter { CareSchedule.medicationIsDue($0, on: now(), timeZone: zone) }
+        if due.contains(where: { !$0.taken }) { count += 1 }
         if !isCheckedIn { count += 1 }
         if hasEmergency { count += 1 }
         if selectedSummary?.isStepsBelowBaseline == true { count += 1 }
@@ -103,14 +109,63 @@ import Observation
         return await perform("Message not sent") { try await self.repository.sendMessage(String(text.prefix(2000))) }
     }
 
-    // MARK: - Care actions
+    @discardableResult
+    public func sendVoiceMessage(_ data: Data) async -> Bool {
+        guard !data.isEmpty else { return false }
+        return await perform("Voice message not sent", success: "Sent to your family.") {
+            try await self.repository.sendVoiceMessage(data)
+        }
+    }
 
-    public func refresh() async {
+    public func voiceAudio(path: String) async -> Data? {
+        guard !path.isEmpty else { return nil }
+        return try? await repository.voiceAudio(path: path)
+    }
+
+    /// True once someone other than the sender has opened the message.
+    public func isSeen(_ message: CareMessage) -> Bool {
+        message.readerProfileIDs.contains { $0 != message.senderProfileID }
+    }
+
+    /// Messages from someone else that this person has not opened.
+    public var unseenMessages: [CareMessage] {
+        guard let currentProfileID else { return [] }
+        return messages.filter { $0.senderProfileID != currentProfileID && !$0.readerProfileIDs.contains(currentProfileID) }
+    }
+
+    /// The two newest messages this person has not opened, oldest first.
+    public var latestUnseenMessages: [CareMessage] {
+        Array(unseenMessages.suffix(2))
+    }
+
+    public func markMessagesRead(_ ids: [String]) async {
+        guard let currentProfileID else { return }
+        let pending = ids.filter { id in
+            guard let message = messages.first(where: { $0.id == id }) else { return false }
+            return !message.readerProfileIDs.contains(currentProfileID)
+        }
+        guard !pending.isEmpty else { return }
         do {
+            try await repository.markMessagesRead(pending)
             try await repository.refresh()
             applyRepositorySnapshot()
         } catch {
+            // A missing read table should not interrupt the conversation.
+        }
+    }
+
+    // MARK: - Care actions
+
+    /// False only when the server rejected the login. Other failures stay on the last snapshot.
+    @discardableResult
+    public func refresh() async -> Bool {
+        do {
+            try await repository.refresh()
+            applyRepositorySnapshot()
+            return true
+        } catch {
             showToast("Couldn't refresh care data: \(error.localizedDescription)")
+            return (error as? CareServiceError) != .unauthorized
         }
     }
 
@@ -121,13 +176,31 @@ import Observation
         if ok { seniorTab = .mood }
     }
 
-    public func recordMood(_ mood: Mood, note: String? = nil) async {
+    @discardableResult
+    public func recordMood(_ mood: Mood, note: String? = nil) async -> Bool {
         let trimmed = note?.trimmingCharacters(in: .whitespacesAndNewlines)
         let ok = await perform("Couldn't save mood", success: "Mood shared with your family.") {
             try await self.repository.recordMood(mood, seniorID: self.selectedSeniorID, at: self.now(),
                                                  note: trimmed?.isEmpty == false ? trimmed : nil)
+            try? await self.repository.clearMoodPrompt(seniorID: self.selectedSeniorID)
         }
         if ok { seniorTab = .home }
+        return ok
+    }
+
+    @discardableResult
+    public func saveMoodSchedule(morning: String, evening: String) async -> Bool {
+        guard !morning.isEmpty, !evening.isEmpty else { return false }
+        return await perform("Couldn't save the mood times", success: "Mood times saved.") {
+            try await self.repository.updateMoodSchedule(seniorID: self.selectedSeniorID, morning: morning, evening: evening)
+        }
+    }
+
+    @discardableResult
+    public func askForMoodNow() async -> Bool {
+        return await perform("Couldn't ask for a mood", success: "Asked for a mood.") {
+            try await self.repository.requestMoodPrompt(seniorID: self.selectedSeniorID, at: self.now())
+        }
     }
 
     public func toggleMedication(id: String) async {
@@ -137,25 +210,52 @@ import Observation
         }
     }
 
+    /// Records the dose as taken. A second call the same day does nothing.
+    /// Returns false only when the save itself failed, so a retry can keep the dose.
     @discardableResult
-    public func addMedication(name: String, dosage: String, scheduledTime: String) async -> Bool {
+    public func markMedicationTaken(id: String) async -> Bool {
+        guard let medication = snapshot.medications.first(where: { $0.id == id }) else { return true }
+        guard !medication.taken else { return true }
+        return await perform("Couldn't update medication") {
+            try await self.repository.recordMedicationEvent(medicationID: id, taken: true, at: self.now())
+        }
+    }
+
+    public func snoozeMedication(id: String, until: Date) async {
+        guard snapshot.medications.contains(where: { $0.id == id }) else { return }
+        await perform("Couldn't snooze") {
+            try await self.repository.snoozeMedication(id: id, until: until)
+        }
+    }
+
+    @discardableResult
+    public func addMedication(name: String, dosage: String, scheduledTime: String,
+                              weekdays: [Int] = [], endsOn: Date? = nil) async -> Bool {
         let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { return false }
         return await perform("Couldn't add medication", success: "\(name) added.") {
             try await self.repository.addMedication(seniorID: self.selectedSeniorID, name: name,
                                                     dosage: dosage.trimmingCharacters(in: .whitespacesAndNewlines),
-                                                    scheduledTime: scheduledTime)
+                                                    scheduledTime: scheduledTime, weekdays: weekdays, endsOn: endsOn)
         }
     }
 
     @discardableResult
-    public func updateMedication(id: String, name: String, dosage: String, scheduledTime: String) async -> Bool {
+    public func updateMedication(id: String, name: String, dosage: String, scheduledTime: String,
+                                 weekdays: [Int] = [], endsOn: Date? = nil) async -> Bool {
         let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { return false }
         return await perform("Couldn't update medication", success: "Medication updated.") {
             try await self.repository.updateMedication(id: id, name: name,
                                                        dosage: dosage.trimmingCharacters(in: .whitespacesAndNewlines),
-                                                       scheduledTime: scheduledTime)
+                                                       scheduledTime: scheduledTime, weekdays: weekdays, endsOn: endsOn)
+        }
+    }
+
+    public func requestMedicationReminder(id: String) async {
+        guard let medication = snapshot.medications.first(where: { $0.id == id }) else { return }
+        await perform("Couldn't send reminder", success: "Reminder sent for \(medication.name).") {
+            try await self.repository.requestMedicationReminder(id: id, at: self.now())
         }
     }
 
@@ -175,6 +275,19 @@ import Observation
         return ok
     }
 
+    /// Records that a visit happened or was missed. A failed save can be retried.
+    @discardableResult
+    public func logVisit(id: String, outcome: VisitOutcome, occurrence: Date? = nil) async -> Bool {
+        guard let visit = snapshot.appointments.first(where: { $0.id == id }) else { return true }
+        let when = occurrence ?? self.now()
+        if let loggedAt = visit.loggedAt, abs(loggedAt.timeIntervalSince(when)) < 90 { return true }
+        if visit.repeatRule == .once, visit.outcome != nil { return true }
+        let saved = outcome == .went ? "Visit logged." : "Visit marked missed."
+        return await perform("Couldn't save visit", success: saved) {
+            try await self.repository.logVisit(id: id, outcome: outcome, at: when)
+        }
+    }
+
     public func deleteAppointment(id: String) async {
         await perform("Couldn't delete appointment", success: "Appointment removed.") {
             try await self.repository.deleteAppointment(id: id)
@@ -182,8 +295,9 @@ import Observation
         appointmentPrep = nil
     }
 
-    public func triggerSOS() async {
-        await perform("Couldn't send SOS") {
+    @discardableResult
+    public func triggerSOS() async -> Bool {
+        await perform("Couldn't send SOS", success: "Your family has your SOS.") {
             try await self.repository.triggerSOS(seniorID: self.selectedSeniorID, at: self.now())
         }
     }
@@ -294,11 +408,72 @@ import Observation
         healthSyncStatus.healthData = .syncing
         do {
             let snapshots = try await healthProvider.snapshots(seniorID: senior.id, endingAt: now())
+            let readings = try await healthProvider.readings(seniorID: senior.id, endingAt: now())
             try await repository.upsertHealthSnapshots(snapshots)
+            try await repository.upsertHealthReadings(readings)
             applyRepositorySnapshot()
             healthSyncStatus.healthData = .synced
             healthSyncStatus.lastSyncDate = now()
             healthSyncStatus.lastError = nil
+            HealthUploadSchedule.markUploaded(now())
+        } catch {
+            healthSyncStatus.healthData = .failed
+            healthSyncStatus.lastError = error.localizedDescription
+        }
+    }
+
+    /// Stores a report from the paired watch. Wear is written immediately. Steps, sleep, heart rate and
+    /// blood pressure are held and written once an hour.
+    public func ingestWatchHealth(_ report: WatchHealthReport) async {
+        guard let senior = linkedSenior else { return }
+        let stamped = report.stamped(seniorID: senior.id)
+        if stamped.readings != nil {
+            cachedWatchReadings = stamped.readings ?? []
+            cachedWatchSnapshots = stamped.snapshots ?? []
+            cachedWatchHealthAt = stamped.reportedAt
+        }
+        await publishWatchPresence(stamped, seniorID: senior.id)
+        await uploadScheduledHealth()
+    }
+
+    /// Writes the newest health totals when an hour has passed. Watch readings win over this iPhone's Health store.
+    public func uploadScheduledHealth() async {
+        guard linkedSenior != nil else { return }
+        guard HealthUploadSchedule.shouldUpload(lastUpload: HealthUploadSchedule.lastUpload(), now: now()) else { return }
+        if let cachedWatchHealthAt, now().timeIntervalSince(cachedWatchHealthAt) < HealthUploadSchedule.watchFreshInterval {
+            await uploadCachedWatchHealth()
+            return
+        }
+        await syncHealthData()
+    }
+
+    private func publishWatchPresence(_ report: WatchHealthReport, seniorID: String) async {
+        if lastPresenceReport == report.reportedAt { return }
+        lastPresenceReport = report.reportedAt
+        do {
+            try await repository.upsertHealthReadings([
+                WatchPresence.reading(seniorID: seniorID, worn: report.worn, reportedAt: report.reportedAt)
+            ])
+            applyRepositorySnapshot()
+        } catch {
+            lastPresenceReport = nil
+        }
+    }
+
+    private func uploadCachedWatchHealth() async {
+        healthSyncStatus.healthData = .syncing
+        do {
+            if !cachedWatchSnapshots.isEmpty {
+                try await repository.upsertHealthSnapshots(cachedWatchSnapshots)
+            }
+            if !cachedWatchReadings.isEmpty {
+                try await repository.upsertHealthReadings(cachedWatchReadings)
+            }
+            applyRepositorySnapshot()
+            healthSyncStatus.healthData = .synced
+            healthSyncStatus.lastSyncDate = now()
+            healthSyncStatus.lastError = nil
+            HealthUploadSchedule.markUploaded(now())
         } catch {
             healthSyncStatus.healthData = .failed
             healthSyncStatus.lastError = error.localizedDescription
@@ -321,7 +496,7 @@ import Observation
         try? await healthProvider.startBackgroundSync()
         guard healthObserver == nil else { return }
         healthObserver = NotificationCenter.default.addObserver(forName: .healthKitDataAvailable, object: nil, queue: .main) { [weak self] _ in
-            Task { @MainActor in await self?.syncHealthData() }
+            Task { @MainActor in await self?.uploadScheduledHealth() }
         }
     }
 

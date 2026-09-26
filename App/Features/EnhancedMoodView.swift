@@ -15,14 +15,14 @@ struct EnhancedMoodView: View {
                 Button { state.seniorTab = .home } label: {
                     Label("Home", systemImage: "chevron.left")
                         .font(.system(size: 18, weight: .bold))
-                        .foregroundStyle(CareTheme.sageDark)
+                        .foregroundStyle(CareTheme.ink)
                         .frame(minHeight: 44)
                 }
                 .padding(.top, 12)
                 .accessibilityIdentifier("mood.back")
 
                 Text("How are you feeling\ntoday?")
-                    .font(.system(size: 32, weight: .black, design: .rounded))
+                    .font(.system(size: 32, weight: .bold))
                     .foregroundStyle(CareTheme.ink)
                     .padding(.top, 24)
                 Text("Tap one face. You can add a note for your family.")
@@ -44,7 +44,7 @@ struct EnhancedMoodView: View {
                             .font(.system(size: 19))
                             .focused($noteFocused)
                             .padding(16)
-                            .background(.white, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                            .background(CareTheme.card, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
                             .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).stroke(CareTheme.cardStroke))
                             .accessibilityIdentifier("mood.note")
                         PrimaryActionButton(title: "Share with family", isLoading: isSaving) {
@@ -75,17 +75,17 @@ struct EnhancedMoodView: View {
         } label: {
             HStack(spacing: 24) {
                 Text(emoji).font(.system(size: 42))
-                Text(title).font(.system(size: 28, weight: .black)).foregroundStyle(CareTheme.ink)
+                Text(title).font(.system(size: 28, weight: .semibold)).foregroundStyle(CareTheme.ink)
                 Spacer()
                 if selected {
-                    Image(systemName: "checkmark.circle.fill").font(.system(size: 30)).foregroundStyle(CareTheme.sage)
+                    Image(systemName: "checkmark.circle.fill").font(.system(size: 28)).foregroundStyle(CareTheme.action)
                 }
             }
             .padding(.horizontal, 28)
             .frame(height: 100)
-            .background(selected ? CareTheme.sagePale : .white, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 28, style: .continuous)
-                .stroke(selected ? CareTheme.sage : CareTheme.cardStroke, lineWidth: 2))
+            .background(selected ? CareTheme.sagePale : CareTheme.card, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(selected ? CareTheme.sage : CareTheme.hairline, lineWidth: selected ? 2 : 1))
         }
         .buttonStyle(.plain)
         .accessibilityLabel(title)
