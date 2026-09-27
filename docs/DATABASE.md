@@ -1,122 +1,56 @@
-# CareCompanion database
+# Database
 
-Persistence runs on Supabase (Postgres, Auth, Realtime). The iOS app talks to it only through the Supabase Swift SDK with the **publishable key**. Row Level Security is the security boundary: the key is public by design, and the database decides which rows a signed-in user may see.
+CareCompanion stores data in Supabase. The app uses the publishable key only. Row Level Security decides which rows a signed-in person can read or write. The service role key stays on the server, in the push function. It is not in the app or in git.
 
-There is no custom server. The service_role key and the Supabase access token are never in the app.
+Apply every file in `Supabase/migrations/` in filename order.
 
-## Where things live
+## Tables
 
-| Path | Purpose |
+Every care table has `account_id`, so a membership check is enough to allow or deny a row.
+
+| Table | What it stores |
 | --- | --- |
-| `Supabase/migrations/20260914000001_care_schema.sql` | Core tables, constraints, `updated_at` triggers, indexes |
-| `Supabase/migrations/20260914000002_rls_and_account_flow.sql` | RLS helpers and policies, profile trigger, account RPCs, realtime publication |
-| `Supabase/migrations/20260915000001_production_features.sql` | Phone and dosage columns, emergency contacts, messages, senior self-linking, account deletion |
-| `Supabase/tests/run_docker.sh` | Applies all migrations to a throwaway Postgres 17 container and runs both RLS suites |
-| `Supabase/tests/run_local.sh` | Same, using Homebrew Postgres |
-| `Supabase/tests/rls_test.sql`, `rls_production_test.sql` | RLS contract tests |
-| `Config/Secrets.xcconfig` (git-ignored) | `SUPABASE_HOST`, `SUPABASE_ANON_KEY`; template in `Secrets.xcconfig.example` |
-| `App/Services/SupabaseCareRepository.swift` | `CareRepository` over PostgREST plus realtime refresh |
-| `App/Services/SupabaseAuthSessionService.swift` | Email/password sign-up and sign-in, password reset, deep links |
-| `App/Services/SessionController.swift` | Session, then profile, then account, then `AppState` |
-| `Sources/CareCore/CareRecords.swift` | Vendor-free row types and row to `CareSnapshot` mapping (unit tested) |
+| `profiles` | Name, city, and phone for each login |
+| `care_accounts` | A family and its invite code |
+| `account_members` | Who belongs, as `senior` or `family` |
+| `account_seniors` | The person being looked after, their time zone, and mood-check times |
+| `check_ins` | "I'm okay" |
+| `mood_entries` | Great, Okay, or Low |
+| `medications` | Name, dose, clock time, optional weekdays, optional end date |
+| `medication_events` | Taken, skipped, or missed |
+| `medication_snoozes` | A shared snooze so the phone and watch agree |
+| `medication_push_log` | One scheduled push per medicine per local day |
+| `health_snapshots` | Daily steps, sleep, and resting heart rate |
+| `health_readings` | Hourly readings, worn minutes, and live watch presence |
+| `appointments` | Visits, repeat rule, end date, and whether the senior went |
+| `alerts` | An open SOS, one per senior |
+| `emergency_contacts` | People to call from the SOS screen |
+| `messages` | The family conversation, including a voice-clip path |
+| `message_reads` | Who has opened a message |
+| `device_tokens` | iPhone and watch push tokens |
 
-## Schema
+`account_seniors.mood_morning` and `mood_evening` default to `9:00 AM` and `6:00 PM`. `mood_prompt_at` is set when the family asks for a mood now, and cleared when the senior answers.
 
-Every care table carries `account_id` (denormalized) so each RLS check is one indexed membership lookup, and realtime can filter by account.
+`medications.nudge_at` is set only when the family taps Remind. Saving a medicine leaves it empty, so the alert waits for `scheduled_time`.
 
-| Table | Purpose | Notes |
-| --- | --- | --- |
-| `profiles` | One row per auth user: `display_name`, `city`, `phone` | Created by `on_auth_user_created` |
-| `care_accounts` | A family | `invite_code` lets others join |
-| `account_members` | Profile to account link, role `senior` or `family` | Unique per (account, profile) |
-| `account_seniors` | Monitored senior | `profile_id` links the senior's own login; soft delete |
-| `check_ins` | "I'm okay" confirmations | |
-| `mood_entries` | `Great` / `Okay` / `Low` plus optional note | |
-| `medications` | Name, `dosage`, `scheduled_time` | Soft delete |
-| `medication_events` | `taken` / `skipped` / `missed` | "Taken today" is the latest event on the senior's local day; a week is loaded for adherence |
-| `health_snapshots` | Daily steps, sleep, resting heart rate | Unique (senior, date, source); see `docs/HEALTHKIT.md` |
-| `appointments` | Visits | Soft delete |
-| `alerts` | SOS | Partial unique index: one open SOS per senior |
-| `emergency_contacts` | Name, relation, phone per senior | Shown on the SOS screen |
-| `messages` | Family conversation per account | `sender_profile_id` defaults to the caller |
-| `care_insights`, `appointment_ai_preps` | Reserved for a future server-generated insight | Not written by the app today |
-| `subscription_statuses` | Reserved for RevenueCat | Premium is free for now |
-| `audit_events` | Account created, member joined, senior claimed | Append-only for members |
+"Today" is the senior's `time_zone_identifier`. A family member in another time zone still sees that senior's day.
 
-### "Today" is the senior's day
+## Access
 
-`CareRecords.snapshot(now:)` evaluates check-ins and medication status in each senior's `time_zone_identifier`. A caregiver in Austin sees a Kathmandu senior's day, not their own.
+A signed-in member can read and write rows for their own family. The `anon` role cannot. Only the senior can link their login to a senior record. Message senders cannot pretend to be someone else.
 
-### Idempotent writes
+Account setup uses `create_care_account`, `join_care_account`, and `claim_senior`. `delete_my_account` removes the login and a family that has no other members.
 
-New rows get an id generated on the device and are inserted with `Prefer: resolution=ignore-duplicates` (`ON CONFLICT (id) DO NOTHING`). Updates and deletes target explicit ids. A write that fails because a pooled connection dropped is retried once (`TransientRetry`) without risk of duplicates. `create_care_account` is the one call that is not retried.
+`Supabase/functions/send-medication-push` sends Apple pushes for a due dose, a family Remind, messages, mood and medicine updates, and a mood check. It runs with the service role. Apple push secrets live in the function environment, not in the repository.
 
-## Row Level Security
+## Project setup
 
-Rule: **a signed-in user can read and write only rows whose `account_id` is an account they belong to.** The `anon` role has no table privileges.
-
-| Helper (SECURITY DEFINER) | Why |
-| --- | --- |
-| `is_account_member(account_id)` | Membership check without recursive policies |
-| `senior_in_account(senior_id, account_id)` | Stops attaching another account's senior |
-| `shares_account_with(profile_id)` | Lets co-members see each other's name and phone |
-
-| Table | select | insert | update | delete |
-| --- | --- | --- | --- | --- |
-| `profiles` | self or co-member | trigger only | self | cascade from auth user |
-| `care_accounts` | members | `create_care_account()` | members | `delete_my_account()` when last member |
-| `account_members` | members | RPCs only | none | self (leave) |
-| `account_seniors` | members | members; `profile_id` only as the senior themself | members; `profile_id` only via `claim_senior()` | none (soft delete) |
-| senior-scoped care tables | members | members + senior in account | members + senior in account | `appointments` |
-| `emergency_contacts` | members | members + senior in account | members + senior in account | members |
-| `messages` | members | members, as themselves | none | own messages |
-| `audit_events` | members | members, as self | none | none |
-
-A trigger (`account_seniors_guard_profile_link`) enforces that only the senior can link a login to a senior record.
-
-### RPCs
-
-| Function | Purpose |
-| --- | --- |
-| `create_care_account(account_name, member_role)` | Creates a family and makes the caller a member |
-| `join_care_account(code, member_role)` | Joins by invite code (idempotent) |
-| `claim_senior(target_senior_id)` | Senior member links their login to the senior record their family created |
-| `delete_my_account()` | Deletes the caller's login and profile, and any account where they were the only member (App Store 5.1.1(v)) |
-
-`rls_production_test.sql` checks that family members cannot link themselves as the senior, outsiders cannot read or post messages or contacts, senders cannot be spoofed, and account deletion removes single-member families but keeps shared ones.
+1. Apply the migrations in order.
+2. Add `carecompanion://login-callback` to the Auth redirect URLs.
+3. Leave email confirmation on.
+4. Use custom SMTP before a real launch. The built-in mailer only sends a few messages an hour.
+5. Put the host and publishable key in `Config/Secrets.xcconfig`.
 
 ```sh
-Supabase/tests/run_docker.sh   # Docker; touches nothing remote
+Supabase/tests/run_docker.sh
 ```
-
-## Account flow
-
-```mermaid
-sequenceDiagram
-    participant Diwas as "Diwas's iPhone"
-    participant Maya as "Maya's iPhone"
-    participant Auth as "Supabase Auth"
-    participant DB as "Postgres + RLS"
-    participant RT as "Realtime"
-
-    Diwas->>Auth: sign up (email confirmation link)
-    Diwas->>DB: update profiles (name, city, phone)
-    Diwas->>DB: rpc create_care_account("Sharma family")
-    Diwas->>DB: insert account_seniors (Maya)
-    Maya->>Auth: sign up / sign in
-    Maya->>DB: rpc join_care_account(invite_code, "senior")
-    Maya->>DB: rpc claim_senior(Maya's senior id)
-    Maya->>DB: insert check_ins, mood_entries; upsert health_snapshots
-    DB-->>RT: postgres_changes (RLS-filtered)
-    RT-->>Diwas: change event, refresh, dashboard
-```
-
-Realtime-published tables: `account_members`, `account_seniors`, `check_ins`, `mood_entries`, `medications`, `medication_events`, `health_snapshots`, `appointments`, `alerts`, `appointment_ai_preps`, `emergency_contacts`, `messages`.
-
-## Live project set-up
-
-1. Apply every file in `Supabase/migrations/` in order (SQL Editor, `psql`, or the Management API).
-2. Authentication > URL Configuration: `carecompanion://login-callback` must be in Redirect URLs (it is).
-3. Authentication > Providers > Email: enabled, with "Confirm email" on.
-4. Before launch, configure custom SMTP. The built-in email service is limited to a few emails per hour, which blocks real sign-ups and password resets.
-5. `Config/Secrets.xcconfig` holds the project host and publishable key.
