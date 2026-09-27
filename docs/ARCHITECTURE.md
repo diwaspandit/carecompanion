@@ -1,73 +1,43 @@
 # Architecture
 
-CareCompanion is a SwiftUI app backed directly by Supabase. It is split into a vendor free domain package and a thin app target that owns the UI and every third party SDK.
+CareCompanion is a SwiftUI app for iPhone and Apple Watch, backed by Supabase. Domain rules live in a package with no third-party dependencies. The app targets own the screens and the SDKs.
 
 ## Layers
 
 | Layer | Location | Responsibility |
 | --- | --- | --- |
-| UI | `App/Features/`, `App/DesignSystem.swift` | SwiftUI screens and shared components. No networking. |
-| Session | `App/Services/SessionController.swift` | Restores the auth session, loads the profile and care account, and builds `AppState` |
-| Services | `App/Services/` | `SupabaseAuthSessionService`, `SupabaseCareRepository`, `HealthKitHealthDataProvider`, `SupabaseConfig` |
-| Domain | `Sources/CareCore/` | `AppState`, models, `CareRepository` protocol, `SeniorCareSummary`, health aggregation, rule based insight, retry policy |
-| Database | `Supabase/migrations/` | Tables, Row Level Security, RPCs, realtime publication |
+| iPhone UI | `App/Features/`, `App/DesignSystem.swift` | Senior and family screens |
+| Watch UI | `Watch/` | Mood, New, Talk, and SOS for the paired senior |
+| Widget | `Widget/` | A home-screen snapshot of the senior's day |
+| Session | `App/Services/SessionController.swift` | Restores sign-in, loads the account, builds `AppState` |
+| Device services | `App/Services/` | Supabase, HealthKit, reminders, push, and the watch link |
+| Domain | `Sources/CareCore/` | Models, `AppState`, summaries, schedules, and insight rules |
+| Database | `Supabase/migrations/`, `Supabase/functions/` | Tables, access rules, and the push function |
 
-`CareCore` has no dependencies, so `swift test` runs offline in under a second. Anything that talks to Supabase or HealthKit lives in the app target behind a protocol defined in `CareCore`.
+`CareCore` does not import UserNotifications, HealthKit, or WatchConnectivity. `swift test` runs it offline. The iPhone and the watch share the reminder code in `MedicationReminderCenter`.
 
-## Launch and session flow
+## Launch
 
-`RootView` in `App/CareCompanionApp.swift` switches on `SessionController.phase`:
+`RootView` follows `SessionController.phase`: secrets, then a stored session, then a profile, then a family. A senior who has not linked their login is asked which senior record is theirs. A family with no seniors is asked to add one. Password reset opens `carecompanion://login-callback`.
 
-```mermaid
-flowchart TD
-    A[Launch] --> B{Secrets configured?}
-    B -- no --> N[Backend not configured]
-    B -- yes --> C{Stored session?}
-    C -- no --> W[Welcome: sign in or create account]
-    W --> E[Check email to confirm]
-    C -- yes --> P{Profile has a name?}
-    E --> P
-    P -- no --> PS[About you]
-    P -- yes --> M{Member of a family?}
-    PS --> M
-    M -- no --> AS[Account setup: create or join]
-    M -- yes --> L[Load account]
-    AS --> L
-    L --> R[Ready]
-    R --> S{Role}
-    S -- senior, not linked --> SL[Link to senior record]
-    S -- senior --> SR[Senior home]
-    S -- family, no seniors --> AF[Add first senior]
-    S -- family --> FR[Family home]
-```
+The watch does not sign in on its own. The paired iPhone publishes the session over Watch Connectivity. The phone refreshes the token. The watch only stores it.
 
-Password reset links open the app through the `carecompanion://login-callback` URL scheme and route to "Choose a new password".
+## State and data
 
-## State
+`AppState` holds the account snapshot, the selected senior, and the tab for each role. Screens call its methods. Those methods write through `CareRepository`, then refresh. New rows use an id created on the device, so a retry cannot insert a second copy.
 
-- `AppState` is a main actor `@Observable` class. It holds the current `CareSnapshot` (account, members, seniors, check-ins, moods, medications, events, health, appointments, alerts, contacts, messages), the selected senior and the selected tab for each role.
-- `SeniorCareSummary` derives everything a screen needs for one senior: today's check-in in the senior's time zone, medicines taken, attention items, averages and adherence. It is pure and unit tested.
-- Views read `AppState` from the environment and call its async methods (`checkIn`, `recordMood`, `toggleMedication`, `triggerSOS`, `acknowledgeEmergency`, `addSenior`, `claimSenior`, `sendMessage` and so on). Each method writes through the repository and then refreshes the snapshot.
+Postgres Row Level Security limits every row to members of that family. Realtime tells the other open apps to refresh.
 
-## Data flow
+## Reminders
 
-1. A view calls an `AppState` method.
-2. `AppState` writes through `CareRepository`. New rows use an id generated on the device and are inserted with ignore duplicates, so a retry after a dropped connection cannot create a second row.
-3. Postgres applies Row Level Security for the signed in user.
-4. Realtime broadcasts the change to every member of the same account.
-5. `SupabaseCareRepository` receives the event and asks `AppState` to refresh, and every open screen updates.
+Daily medicine and mood times are scheduled on the senior's iPhone and watch. They fire at the saved clock time even if the app is closed. Adding or editing a medicine does not send an alert. A family Remind sets `medications.nudge_at` and sends a push. Mood checks default to 9:00 AM and 6:00 PM. Answering on one device clears the prompt on the other.
 
-## Family navigation
+Closed-app pushes go through `Supabase/functions/send-medication-push`. That function uses Apple push credentials stored in Supabase, not in the app.
 
-`FamilyRootView` wraps the tab content in a `NavigationStack` with the navigation bar hidden at the root. Tapping a senior tile selects that senior and pushes `FamilyCareDetailView`. The status card opens Alerts when there is something to respond to, and otherwise opens the same detail screen. The bottom bar switches tabs by setting `AppState.familyTab`.
+## Decisions
 
-## Key decisions
-
-- **The database is the security boundary.** The app ships only the publishable key. Every care table stores `account_id`, so each policy is a single indexed membership check.
-- **Today means the senior's day.** Check-ins and medicine status are evaluated in the senior's time zone, not the caregiver's.
-- **Medicine status is derived.** "Taken today" is the latest `medication_events` row on the senior's local day, not a stored flag.
-- **Health stays with the senior.** Only the senior's own linked iPhone reads HealthKit, and it writes daily totals for that senior only.
-- **Roles come from membership.** `account_members.role` decides the experience. Linking a login to a senior record is allowed only for the senior, enforced by a trigger.
-- **Insight is rule based.** `MockAIService` builds the care insight and visit preparation from real account data with fixed, non medical wording. The `AIService` protocol leaves room for a server generated version later.
-- **Premium features are free for now.** `SubscriptionAccess` and `AccessPolicy` remain in `CareCore` for a future subscription.
-- **Debug builds build the active architecture only.** `ONLY_ACTIVE_ARCH = YES` for Debug keeps Simulator builds consistent between Xcode and the command line.
+- The database is the security boundary. The app ships only the publishable key.
+- "Today" is the senior's time zone, not the family's.
+- Medicine "taken" is the latest event on that local day, not a stored flag.
+- Only the senior's iPhone and watch read Apple Health. The phone writes the shared rows.
+- Care insight is rule based. It describes the day. It does not give medical advice.
